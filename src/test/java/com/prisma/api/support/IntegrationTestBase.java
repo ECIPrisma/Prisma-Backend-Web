@@ -106,7 +106,7 @@ public abstract class IntegrationTestBase {
     }
 
     protected JsonNode leer(MvcResult r) throws Exception {
-        return json.readTree(r.getResponse().getContentAsString());
+        return json.readTree(r.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     protected JsonNode leer(ResultActions a) throws Exception {

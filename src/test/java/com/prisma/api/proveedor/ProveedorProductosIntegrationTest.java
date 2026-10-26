@@ -56,7 +56,7 @@ class ProveedorProductosIntegrationTest extends IntegrationTestBase {
     void crearProducto() throws Exception {
         postReq("/api/v1/proveedores/productos", tokenPostobon,
                 Map.of("sku", "PB-NEW", "nombre", "Pony Malta 330ml", "presentacion", "Caja x 24", "precioUnitario", 48000, "stockDisponible", 20))
-                .andExpect(status().isOk());
+                .andExpect(status().isCreated());
 
         assertThat(productoRepository.findByProveedorIdAndSku(postobon().getId(), "PB-NEW")).isPresent();
         assertThat(productoRepository.findByProveedorIdAndSku(femsa().getId(), "PB-NEW")).isEmpty();

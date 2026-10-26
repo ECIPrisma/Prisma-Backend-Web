@@ -53,6 +53,8 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // Rutas públicas de Autenticación, Documentación y Monitoreo
+                        // /me devuelve los datos del token: exige sesión aunque el resto de /auth sea público
+                        .requestMatchers("/api/v1/auth/me").authenticated()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
