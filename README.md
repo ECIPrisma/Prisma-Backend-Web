@@ -116,6 +116,7 @@ Los scripts SQL oficiales se encuentran en la raíz del proyecto:
 | Método | Endpoint | Rol Requerido | Descripción |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/v1/auth/login` | Público | Autenticación con email/teléfono y retorno de JWT |
+| `POST` | `/api/v1/auth/register` | Público | Registro de tendero + tienda (siempre ROLE_TENDERO), devuelve JWT |
 | `GET` | `/api/v1/auth/me` | Autenticado | Obtener información del usuario en sesión |
 | `GET` | `/api/v1/tiendas/catalogo/{proveedorId}` | `ROLE_TENDERO` | Consulta de catálogo y precios por proveedor |
 | `POST` | `/api/v1/tiendas/pedidos` | `ROLE_TENDERO` | Creación de orden de compra multi-producto |
@@ -146,7 +147,12 @@ export JWT_SECRET=404E635266556A586E3272357538782F413F4428472B4B6250645367566B59
 export PORT=8080
 ```
 
+`CORS_ALLOWED_ORIGINS` (lista separada por comas) restringe los orígenes permitidos; por defecto acepta cualquiera, definirla en producción.
+
 ### 3. Compilación y Pruebas con Maven Wrapper
+
+Las pruebas (`src/test`) son de integración sobre la aplicación completa con H2 en memoria y los datos semilla, y cubren: login/JWT, registro, permisos por rol, pedidos del tendero, entrega con PIN, aislamiento entre proveedores y override de soporte. No necesitan PostgreSQL ni servicios externos.
+
 ```bash
 # Dar permisos de ejecución
 chmod +x mvnw

@@ -4,6 +4,8 @@ import com.prisma.api.aspect.AuditableAction;
 import com.prisma.api.dto.ApiResponse;
 import com.prisma.api.entity.*;
 import com.prisma.api.enums.EstadoPedido;
+import com.prisma.api.exception.ApiException;
+import org.springframework.http.HttpStatus;
 import com.prisma.api.enums.SeveridadAudit;
 import com.prisma.api.enums.TipoIncidente;
 import com.prisma.api.enums.Rol;
@@ -73,6 +75,21 @@ public class ProveedorController {
         this.passwordEncoder = passwordEncoder;
     }
 
+    private static boolean esAdmin(UserPrincipal u) {
+        return u.getAuthorities().stream().anyMatch(a ->
+                a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_PLATFORM_ADMIN"));
+    }
+
+    /** Aislamiento multi-tenant: un proveedor solo modifica productos de su propio catálogo. */
+    private Producto productoPropio(Long id, UserPrincipal currentUser) {
+        Producto p = productoRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Producto no encontrado con ID: " + id));
+        if (!esAdmin(currentUser) && !p.getProveedor().getId().equals(currentUser.getProveedorId())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "El producto pertenece a otro proveedor");
+        }
+        return p;
+    }
+
     private Long resolveProveedorId(UserPrincipal currentUser) {
         if (currentUser != null && currentUser.getProveedorId() != null) {
             return currentUser.getProveedorId();
@@ -138,12 +155,12 @@ public class ProveedorController {
     @PreAuthorize("hasAnyAuthority('ROLE_PROVEEDOR_ADMIN', 'ROLE_PROVEEDOR', 'ROLE_ADMIN', 'ROLE_PLATFORM_ADMIN')")
     @Transactional
     @Operation(summary = "Actualizar precio, stock o estado de un producto")
-    public ResponseEntity<ApiResponse<Producto>> actualizarProducto(
+public ResponseEntity<ApiResponse<Producto>> actualizarProducto(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> body) {
-        
-        Producto p = productoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Producto no encontrado con ID: " + id));
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+
+        Producto p = productoPropio(id, currentUser);
 
         if (body.containsKey("nombre")) p.setNombre(body.get("nombre").toString());
         if (body.containsKey("presentacion")) p.setPresentacion(body.get("presentacion").toString());
@@ -161,9 +178,9 @@ public class ProveedorController {
     @PreAuthorize("hasAnyAuthority('ROLE_PROVEEDOR_ADMIN', 'ROLE_PROVEEDOR', 'ROLE_ADMIN', 'ROLE_PLATFORM_ADMIN')")
     @Transactional
     @Operation(summary = "Eliminar o archivar un producto del catálogo")
-    public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long id) {
-        Producto p = productoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Producto no encontrado con ID: " + id));
+public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long id,
+                                                                @AuthenticationPrincipal UserPrincipal currentUser) {
+        Producto p = productoPropio(id, currentUser);
         p.setEstado("INACTIVO");
         productoRepository.save(p);
         return ResponseEntity.ok(ApiResponse.exito("Producto retirado del catálogo exitosamente", "OK"));

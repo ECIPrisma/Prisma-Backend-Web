@@ -1,0 +1,19 @@
+name: CI - Pruebas del backend
+
+on:
+  push:
+    branches: [ "main", "feature/**" ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Compilar y ejecutar pruebas (H2 en memoria, sin servicios externos)
+        run: ./mvnw -B verify

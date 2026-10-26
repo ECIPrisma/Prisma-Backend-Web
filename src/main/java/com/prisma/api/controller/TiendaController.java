@@ -6,6 +6,8 @@ import com.prisma.api.entity.*;
 import com.prisma.api.enums.EstadoPedido;
 import com.prisma.api.enums.MedioPago;
 import com.prisma.api.enums.SeveridadAudit;
+import com.prisma.api.exception.ApiException;
+import org.springframework.http.HttpStatus;
 import com.prisma.api.enums.TipoIncidente;
 import com.prisma.api.repository.*;
 import com.prisma.api.security.UserPrincipal;
@@ -57,6 +59,23 @@ public class TiendaController {
         this.usuarioRepository = usuarioRepository;
     }
 
+    private static boolean esAdmin(UserPrincipal u) {
+        return u.getAuthorities().stream().anyMatch(a ->
+                a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_PLATFORM_ADMIN"));
+    }
+
+    /** Genera un número de pedido que no exista aún (el sufijo aleatorio de 4 dígitos colisiona rápido). */
+    private String generarNumeroPedido() {
+        SecureRandom random = new SecureRandom();
+        for (int i = 0; i < 50; i++) {
+            String candidato = "PED-2026-" + String.format("%04d", random.nextInt(10000));
+            if (!pedidoRepository.existsByNumeroPedido(candidato)) {
+                return candidato;
+            }
+        }
+        return "PED-2026-" + System.currentTimeMillis();
+    }
+
     @GetMapping("/mi-tienda")
     @PreAuthorize("hasAnyAuthority('ROLE_TENDERO', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
     @Operation(summary = "Obtener perfil de la tienda del tendero autenticado")
@@ -97,19 +116,28 @@ public class TiendaController {
             @RequestBody Map<String, Object> payload,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
-        Tienda tienda = tiendaRepository.findFirstByTenderoId(currentUser.getId())
-                .orElseThrow(() -> new RuntimeException("Tienda no encontrada para el tendero autenticado"));
+Tienda tienda = tiendaRepository.findFirstByTenderoId(currentUser.getId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Tienda no encontrada para el tendero autenticado"));
 
-        Long proveedorId = payload.containsKey("proveedorId") ? Long.parseLong(payload.get("proveedorId").toString()) : 1L;
+        Long proveedorId;
+        try {
+            // La app actual envía siempre proveedorId=1; se mantiene 1 como valor por defecto.
+            proveedorId = payload.containsKey("proveedorId") ? Long.parseLong(payload.get("proveedorId").toString()) : 1L;
+        } catch (NumberFormatException e) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "proveedorId debe ser numérico");
+        }
         Proveedor prov = proveedorRepository.findById(proveedorId)
-                .orElseThrow(() -> new RuntimeException("Proveedor no encontrado"));
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Proveedor no encontrado"));
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> itemsData = (List<Map<String, Object>>) payload.getOrDefault("items", List.of());
 
+if (itemsData == null || itemsData.isEmpty()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El pedido debe incluir al menos un producto");
+        }
+
         Pedido pedido = new Pedido();
-        String randomSuffix = String.format("%04d", new SecureRandom().nextInt(10000));
-        pedido.setNumeroPedido("PED-2026-" + randomSuffix);
+        pedido.setNumeroPedido(generarNumeroPedido());
         pedido.setTienda(tienda);
         pedido.setProveedor(prov);
         pedido.setEstado(EstadoPedido.CREADO);
@@ -124,10 +152,26 @@ public class TiendaController {
         List<ItemPedido> itemsGuardados = new ArrayList<>();
 
         for (Map<String, Object> it : itemsData) {
-            Long prodId = Long.parseLong(it.get("productoId").toString());
-            int cantidad = Integer.parseInt(it.get("cantidad").toString());
-            Producto prod = productoRepository.findById(prodId).orElse(null);
-            if (prod != null) {
+Long prodId;
+            int cantidad;
+            try {
+                prodId = Long.parseLong(String.valueOf(it.get("productoId")));
+                cantidad = Integer.parseInt(String.valueOf(it.get("cantidad")));
+            } catch (NumberFormatException e) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "productoId y cantidad deben ser numéricos");
+            }
+            if (cantidad <= 0) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "La cantidad debe ser mayor que cero");
+            }
+            Producto prod = productoRepository.findById(prodId)
+                    .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Producto no encontrado: " + prodId));
+            if (!prod.getProveedor().getId().equals(prov.getId())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "El producto " + prodId + " no pertenece al proveedor seleccionado");
+            }
+            if ("INACTIVO".equals(prod.getEstado())) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "El producto " + prodId + " ya no está disponible");
+            }
+            {
                 ItemPedido itemPedido = new ItemPedido();
                 itemPedido.setPedido(pedido);
                 itemPedido.setProducto(prod);
@@ -143,9 +187,7 @@ public class TiendaController {
             }
         }
 
-        if (subtotal.compareTo(BigDecimal.ZERO) == 0) {
-            subtotal = new BigDecimal("125000.00");
-        }
+
 
         pedido.setSubtotal(subtotal);
         pedido.setTotalAPagar(subtotal);
@@ -186,8 +228,8 @@ public class TiendaController {
     public ResponseEntity<ApiResponse<Pedido>> repetirUltimoPedido(
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
-        Tienda tienda = tiendaRepository.findFirstByTenderoId(currentUser.getId())
-                .orElseThrow(() -> new RuntimeException("Tienda no encontrada"));
+Tienda tienda = tiendaRepository.findFirstByTenderoId(currentUser.getId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Tienda no encontrada"));
 
         List<Pedido> pedidos = pedidoRepository.findByTenderoIdOrderByFechaCreacionDesc(currentUser.getId());
         if (pedidos.isEmpty()) {
@@ -200,7 +242,7 @@ public class TiendaController {
         Pedido ultimo = pedidos.get(0);
 
         Pedido nuevo = new Pedido();
-        nuevo.setNumeroPedido("PED-2026-" + String.format("%04d", new SecureRandom().nextInt(10000)));
+nuevo.setNumeroPedido(generarNumeroPedido());
         nuevo.setTienda(tienda);
         Proveedor prov = ultimo.getProveedor();
         nuevo.setProveedor(prov);
@@ -264,8 +306,11 @@ public class TiendaController {
             @RequestBody Map<String, String> payload,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
-        Pedido pedido = pedidoRepository.findById(pedidoId)
-                .orElseThrow(() -> new RuntimeException("Pedido no encontrado"));
+Pedido pedido = pedidoRepository.findById(pedidoId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Pedido no encontrado"));
+        if (!esAdmin(currentUser) && !pedido.getTienda().getTendero().getId().equals(currentUser.getId())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "El pedido no pertenece a este tendero");
+        }
 
         Usuario tendero = usuarioRepository.findById(currentUser.getId()).orElse(null);
 

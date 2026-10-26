@@ -11,6 +11,8 @@ import java.util.Optional;
 @Repository
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     Optional<Pedido> findByNumeroPedido(String numeroPedido);
+
+    boolean existsByNumeroPedido(String numeroPedido);
     @org.springframework.data.jpa.repository.Query("SELECT DISTINCT p FROM Pedido p LEFT JOIN FETCH p.tienda LEFT JOIN FETCH p.items LEFT JOIN FETCH p.proveedor WHERE p.tienda.id = :tiendaId ORDER BY p.fechaCreacion DESC")
     List<Pedido> findByTiendaIdOrderByFechaCreacionDesc(@org.springframework.data.repository.query.Param("tiendaId") Long tiendaId);
 

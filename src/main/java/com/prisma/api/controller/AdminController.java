@@ -204,7 +204,14 @@ public class AdminController {
         }
 
         Pedido pedido = pedidoRepository.findById(pedidoId)
-                .orElseThrow(() -> new RuntimeException("Pedido no encontrado con ID: " + pedidoId));
+                .orElseThrow(() -> new com.prisma.api.exception.ApiException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Pedido no encontrado con ID: " + pedidoId));
+
+        if (pedido.getEstado() == EstadoPedido.ENTREGADO || pedido.getEstado() == EstadoPedido.CANCELADO
+                || pedido.getEstado() == EstadoPedido.RECHAZADO) {
+            throw new com.prisma.api.exception.ApiException(org.springframework.http.HttpStatus.CONFLICT,
+                    "No se puede forzar la entrega de un pedido en estado " + pedido.getEstado());
+        }
 
         pedido.setEstado(EstadoPedido.ENTREGADO);
         pedido.setFechaEntregaReal(OffsetDateTime.now());
