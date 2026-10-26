@@ -9,8 +9,14 @@ jobs:
   deploy:
     runs-on: [ self-hosted, server-sabio ]
     steps:
+      - name: Fix Workspace Permissions
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/app" alpine chown -R $(id -u):$(id -g) /app 2>/dev/null || true
+
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Build Backend Application
         run: |
@@ -21,6 +27,7 @@ jobs:
             -w /app \
             maven:3.9-eclipse-temurin-21-alpine \
             mvn clean package -DskipTests
+          docker run --rm -v "$GITHUB_WORKSPACE:/app" alpine chown -R $(id -u):$(id -g) /app
 
       - name: Deploy JAR and Rebuild Container
         run: |
@@ -30,4 +37,4 @@ jobs:
           docker build -t prisma-backend:latest /home/juan/prisma-web
           echo "Reiniciando contenedor prisma-backend..."
           docker restart prisma-backend
-          echo "¡Despliegue del backend completado con éxito en Server Sabio!"
+          echo "Despliegue del backend completado con exito en Server Sabio"
