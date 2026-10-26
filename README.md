@@ -163,6 +163,18 @@ chmod +x mvnw
 ./mvnw spring-boot:run
 ```
 
+### 5. Despliegue con Docker y Docker Compose
+Puedes levantar la API Spring Boot junto a PostgreSQL y los datos semilla en un solo paso:
+
+```bash
+# Construir imagen y levantar servicios
+docker compose up -d --build
+
+# Ver logs en tiempo real
+docker compose logs -f backend
+```
+El contenedor de la API estara disponible en `http://localhost:8080`.
+
 Una vez iniciado, el servicio estará respondiendo en `http://localhost:8080`.
 
 ---
