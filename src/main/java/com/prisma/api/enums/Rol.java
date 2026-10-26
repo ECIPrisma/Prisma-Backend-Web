@@ -1,0 +1,12 @@
+package com.prisma.api.enums;
+
+public enum Rol {
+    ROLE_PLATFORM_ADMIN,
+    ROLE_ADMIN,
+    ROLE_SOPORTE,
+    ROLE_CONTABILIDAD,
+    ROLE_PROVEEDOR_ADMIN,
+    ROLE_PROVEEDOR,
+    ROLE_REPARTIDOR,
+    ROLE_TENDERO
+}

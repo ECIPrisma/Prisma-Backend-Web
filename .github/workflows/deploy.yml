@@ -1,0 +1,33 @@
+name: Deploy Prisma Backend to Server Sabio
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [ self-hosted, server-sabio ]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Backend Application
+        run: |
+          echo "Compilando backend Spring Boot con Java 21 en Server Sabio..."
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/app" \
+            -v "/home/juan/.m2:/root/.m2" \
+            -w /app \
+            maven:3.9-eclipse-temurin-21-alpine \
+            mvn clean package -DskipTests
+
+      - name: Deploy JAR and Rebuild Container
+        run: |
+          echo "Desplegando app.jar en /home/juan/prisma-web/app.jar..."
+          cp "$GITHUB_WORKSPACE/target/prisma-backend-0.0.1-SNAPSHOT.jar" /home/juan/prisma-web/app.jar
+          echo "Reconstruyendo imagen de contenedor prisma-backend..."
+          docker build -t prisma-backend:latest /home/juan/prisma-web
+          echo "Reiniciando contenedor prisma-backend..."
+          docker restart prisma-backend
+          echo "¡Despliegue del backend completado con éxito en Server Sabio!"
