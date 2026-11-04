@@ -17,6 +17,10 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     @org.springframework.data.jpa.repository.Query("SELECT DISTINCT p FROM Pedido p LEFT JOIN FETCH p.tienda LEFT JOIN FETCH p.items LEFT JOIN FETCH p.proveedor WHERE p.tienda.tendero.id = :tenderoId ORDER BY p.fechaCreacion DESC")
     List<Pedido> findByTenderoIdOrderByFechaCreacionDesc(@org.springframework.data.repository.query.Param("tenderoId") Long tenderoId);
 
+    List<Pedido> findByProveedorId(Long proveedorId);
+
+    List<Pedido> findByProveedorIdAndTiendaId(Long proveedorId, Long tiendaId);
+
     List<Pedido> findByProveedorIdAndEstado(Long proveedorId, EstadoPedido estado);
 
     @org.springframework.data.jpa.repository.Query("SELECT DISTINCT p FROM Pedido p LEFT JOIN FETCH p.tienda LEFT JOIN FETCH p.items WHERE p.ruta.id = :rutaId ORDER BY p.ordenParada ASC")

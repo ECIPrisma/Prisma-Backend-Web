@@ -235,9 +235,7 @@ public class ProveedorController {
     @Operation(summary = "Consultar todos los pedidos de la empresa proveedora")
     public ResponseEntity<ApiResponse<List<Pedido>>> getPedidosNuevos(@AuthenticationPrincipal UserPrincipal currentUser) {
         Long provId = resolveProveedorId(currentUser);
-        List<Pedido> pedidos = pedidoRepository.findAll().stream()
-                .filter(p -> p.getProveedor() != null && p.getProveedor().getId().equals(provId))
-                .toList();
+        List<Pedido> pedidos = pedidoRepository.findByProveedorId(provId);
         return ResponseEntity.ok(ApiResponse.exito("Pedidos de la empresa", pedidos));
     }
 
@@ -617,9 +615,7 @@ public class ProveedorController {
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getTiendasClientes(@AuthenticationPrincipal UserPrincipal currentUser) {
         Long provId = resolveProveedorId(currentUser);
         List<Tienda> todasTiendas = tiendaRepository.findAll();
-        List<Pedido> pedidosProveedor = pedidoRepository.findAll().stream()
-                .filter(p -> p.getProveedor() != null && p.getProveedor().getId().equals(provId))
-                .toList();
+        List<Pedido> pedidosProveedor = pedidoRepository.findByProveedorId(provId);
 
         List<Map<String, Object>> resultado = todasTiendas.stream().map(t -> {
             List<Pedido> pedidosTienda = pedidosProveedor.stream()
@@ -778,10 +774,7 @@ public class ProveedorController {
         Tienda tienda = tiendaRepository.findById(tiendaId)
                 .orElseThrow(() -> new RuntimeException("Tienda no encontrada: " + tiendaId));
 
-        List<Pedido> pedidosTienda = pedidoRepository.findAll().stream()
-                .filter(p -> p.getTienda() != null && p.getTienda().getId().equals(tiendaId))
-                .filter(p -> p.getProveedor() != null && p.getProveedor().getId().equals(provId))
-                .toList();
+        List<Pedido> pedidosTienda = pedidoRepository.findByProveedorIdAndTiendaId(provId, tiendaId);
 
         List<ItemPedido> items = new ArrayList<>();
         for (Pedido ped : pedidosTienda) {
@@ -863,10 +856,7 @@ public class ProveedorController {
     @Operation(summary = "Consultar estadísticas económicas y ganancias netas del productor")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getEstadisticasEconomicas(@AuthenticationPrincipal UserPrincipal currentUser) {
         Long provId = resolveProveedorId(currentUser);
-
-        List<Pedido> pedidosProveedor = pedidoRepository.findAll().stream()
-                .filter(p -> p.getProveedor() != null && p.getProveedor().getId().equals(provId))
-                .toList();
+        List<Pedido> pedidosProveedor = pedidoRepository.findByProveedorId(provId);
 
         List<Pedido> pedidosEntregados = pedidosProveedor.stream()
                 .filter(p -> p.getEstado() == EstadoPedido.ENTREGADO)
@@ -967,12 +957,7 @@ public class ProveedorController {
     @Operation(summary = "Consultar PQRS, quejas y reclamos de tiendas clientes hacia el productor")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getPqrsProveedor(@AuthenticationPrincipal UserPrincipal currentUser) {
         Long provId = resolveProveedorId(currentUser);
-
-        List<Disputa> disputas = disputaRepository.findAll().stream()
-                .filter(d -> (d.getPedido() != null && d.getPedido().getProveedor() != null && d.getPedido().getProveedor().getId().equals(provId))
-                          || (d.getProveedor() != null && d.getProveedor().getId().equals(provId)))
-                .sorted((a, b) -> b.getFechaReporte().compareTo(a.getFechaReporte()))
-                .toList();
+        List<Disputa> disputas = disputaRepository.findByProveedorOrPedidoProveedorId(provId);
 
         List<Map<String, Object>> res = disputas.stream().map(d -> {
             Map<String, Object> map = new HashMap<>();
