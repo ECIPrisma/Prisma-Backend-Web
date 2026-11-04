@@ -1,8 +1,6 @@
 name: Deploy Prisma Backend to Server Sabio
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
