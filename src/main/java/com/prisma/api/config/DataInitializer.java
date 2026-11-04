@@ -84,6 +84,7 @@ public class DataInitializer implements CommandLineRunner {
         femsa.setContactoTelefono("3109876543");
         femsa.setDireccionSede("Calle 100 # 19-61, Bogotá");
         femsa.setCiudad("Bogotá");
+        femsa.setZonaCobertura("Bogotá: Kennedy, Bosa, Suba, Engativá y Fontibón");
         femsa.setComisionPorcentaje(new BigDecimal("2.50"));
         femsa.setEstado("ACTIVO");
         femsa = proveedorRepository.save(femsa);
@@ -97,9 +98,10 @@ public class DataInitializer implements CommandLineRunner {
         postobon.setContactoTelefono("3115554321");
         postobon.setDireccionSede("Av. Boyacá # 68-12, Bogotá");
         postobon.setCiudad("Bogotá");
+        postobon.setZonaCobertura("Bogotá: Chapinero, Usaquén, Teusaquillo y Barrios Unidos");
         postobon.setComisionPorcentaje(new BigDecimal("2.50"));
         postobon.setEstado("ACTIVO");
-        proveedorRepository.save(postobon);
+        postobon = proveedorRepository.save(postobon);
 
         // 2. Camiones
         Camion c1 = new Camion();
@@ -202,6 +204,7 @@ public class DataInitializer implements CommandLineRunner {
         Usuario tenderoUser = usuarioRepository.save(new Usuario("dona.marta@labendicion.com", passwordEncoder.encode("admin123"), "Doña Marta Rodríguez", "3205551234", Rol.ROLE_TENDERO, null));
         Usuario repartidorUser = usuarioRepository.save(new Usuario("conductor.juan@femsa.com.co", passwordEncoder.encode("admin123"), "Juan Camilo Reyes", "3154448899", Rol.ROLE_REPARTIDOR, femsa));
         usuarioRepository.save(new Usuario("logistica@femsa.com.co", passwordEncoder.encode("femsa123"), "Carlos Morales", "3109876543", Rol.ROLE_PROVEEDOR, femsa));
+        usuarioRepository.save(new Usuario("ventas@postobon.com.co", passwordEncoder.encode("postobon123"), "Laura Gómez", "3115554321", Rol.ROLE_PROVEEDOR, postobon));
 
         // 6. Tiendas de Barrio
         Tienda t1 = new Tienda();

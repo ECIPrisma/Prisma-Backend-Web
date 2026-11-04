@@ -1,0 +1,12 @@
+package com.prisma.api.repository;
+
+import com.prisma.api.entity.RefreshToken;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+
+@Repository
+public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
+    Optional<RefreshToken> findByTokenHash(String tokenHash);
+}

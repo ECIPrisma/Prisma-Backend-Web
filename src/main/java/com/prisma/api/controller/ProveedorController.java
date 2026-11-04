@@ -8,6 +8,7 @@ import com.prisma.api.enums.SeveridadAudit;
 import com.prisma.api.enums.TipoIncidente;
 import com.prisma.api.enums.Rol;
 import com.prisma.api.repository.*;
+import com.prisma.api.security.AislamientoTenant;
 import com.prisma.api.security.UserPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -245,10 +246,12 @@ public class ProveedorController {
     @Operation(summary = "Avanzar el estado del pedido (Fulfillment / Despacho)")
     public ResponseEntity<ApiResponse<Pedido>> cambiarEstadoPedido(
             @PathVariable Long pedidoId,
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
         
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RuntimeException("Pedido no encontrado: " + pedidoId));
+        AislamientoTenant.verificarPropietario(currentUser, pedido.getProveedor(), "El pedido");
 
         String nuevoEstado = body.get("estado");
         if (nuevoEstado != null) {
@@ -465,9 +468,11 @@ public class ProveedorController {
     @Operation(summary = "Actualizar datos, PIN de acceso móvil o estado operativo del camión")
     public ResponseEntity<ApiResponse<Map<String, Object>>> actualizarCamion(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
         Camion c = camionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Camión no encontrado con ID: " + id));
+        AislamientoTenant.verificarPropietario(currentUser, c.getProveedor(), "El camión");
 
         if (body.containsKey("placa")) c.setPlaca(body.get("placa").toString().toUpperCase());
         if (body.containsKey("marcaModelo")) c.setMarcaModelo(body.get("marcaModelo").toString());
@@ -533,9 +538,11 @@ public class ProveedorController {
     @PreAuthorize("hasAnyAuthority('ROLE_PROVEEDOR_ADMIN', 'ROLE_PROVEEDOR', 'ROLE_ADMIN', 'ROLE_PLATFORM_ADMIN')")
     @Transactional
     @Operation(summary = "Dar de baja un camión de la flota")
-    public ResponseEntity<ApiResponse<String>> eliminarCamion(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<String>> eliminarCamion(@PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
         Camion c = camionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Camión no encontrado con ID: " + id));
+        AislamientoTenant.verificarPropietario(currentUser, c.getProveedor(), "El camión");
         c.setEstado("MANTENIMIENTO");
         camionRepository.save(c);
         return ResponseEntity.ok(ApiResponse.exito("Camión retirado del servicio activo", "OK"));
@@ -556,10 +563,12 @@ public class ProveedorController {
     @Operation(summary = "Reportar imposibilidad de entrega o cumplimiento (Tienda cerrada, dinero incompleto, sin stock)")
     public ResponseEntity<ApiResponse<Pedido>> reportarProblemaPedido(
             @PathVariable Long pedidoId,
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
 
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RuntimeException("Pedido no encontrado: " + pedidoId));
+        AislamientoTenant.verificarPropietario(currentUser, pedido.getProveedor(), "El pedido");
 
         String motivo = body.getOrDefault("motivo", "PROBLEMA_ENTREGA");
         String detalle = body.getOrDefault("detalle", "No fue posible realizar la entrega en la tienda.");
@@ -588,10 +597,12 @@ public class ProveedorController {
     @Operation(summary = "Reprogramar fecha de entrega por parte del proveedor")
     public ResponseEntity<ApiResponse<Pedido>> reprogramarPedido(
             @PathVariable Long pedidoId,
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
 
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RuntimeException("Pedido no encontrado: " + pedidoId));
+        AislamientoTenant.verificarPropietario(currentUser, pedido.getProveedor(), "El pedido");
 
         String nuevaFechaStr = body.get("nuevaFecha");
         if (nuevaFechaStr != null) {
@@ -919,9 +930,11 @@ public class ProveedorController {
     @Operation(summary = "Reportar percance o varamiento de un camión para auxilio inmediato")
     public ResponseEntity<ApiResponse<Map<String, Object>>> reportarVarado(
             @PathVariable Long rutaId,
-            @RequestBody(required = false) Map<String, String> body) {
+            @RequestBody(required = false) Map<String, String> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
         Ruta r = rutaRepository.findById(rutaId)
                 .orElseThrow(() -> new RuntimeException("Ruta no encontrada con ID: " + rutaId));
+        AislamientoTenant.verificarPropietario(currentUser, r.getProveedor(), "La ruta");
 
         String accion = body != null && body.containsKey("accion") ? body.get("accion") : "VARADO";
         String motivo = body != null && body.containsKey("motivo") ? body.get("motivo") : "Camión varado por falla mecánica o percance en la vía";
@@ -1065,6 +1078,8 @@ public class ProveedorController {
             @AuthenticationPrincipal UserPrincipal currentUser) {
         Disputa d = disputaRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Ticket de PQRS no encontrado con ID: " + id));
+        AislamientoTenant.verificarPropietario(currentUser, d.getProveedor() != null ? d.getProveedor()
+                : (d.getPedido() != null ? d.getPedido().getProveedor() : null), "La PQRS");
 
         String resolucion = body != null && body.containsKey("resolucion") ? body.get("resolucion") : "Reclamo gestionado por el distribuidor";
         String nuevoEstado = body != null && body.containsKey("nuevoEstado") ? body.get("nuevoEstado") : "RESUELTO";
