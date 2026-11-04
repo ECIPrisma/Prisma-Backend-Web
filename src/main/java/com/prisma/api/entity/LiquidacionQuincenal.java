@@ -34,7 +34,7 @@ public class LiquidacionQuincenal {
     private BigDecimal totalVentasBrutas;
 
     @Column(name = "porcentaje_comision", nullable = false, precision = 5, scale = 2)
-    private BigDecimal porcentajeComision = new BigDecimal("2.50");
+    private BigDecimal porcentajeComision = new BigDecimal("3.50");
 
     @Column(name = "valor_comision_prisma", nullable = false, precision = 14, scale = 2)
     private BigDecimal valorComisionPrisma;

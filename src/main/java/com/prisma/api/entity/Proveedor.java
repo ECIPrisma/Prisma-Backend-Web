@@ -50,7 +50,7 @@ public class Proveedor {
     private String colorSecundarioHex = "#1E6F68";
 
     @Column(name = "comision_porcentaje", nullable = false, precision = 5, scale = 2)
-    private BigDecimal comisionPorcentaje = new BigDecimal("2.50");
+    private BigDecimal comisionPorcentaje = new BigDecimal("3.50");
 
     @Column(nullable = false, length = 20)
     private String estado = "ACTIVO";

@@ -81,7 +81,7 @@ public class AdminController {
         p.setLogoUrl((String) body.getOrDefault("logoUrl", "/logo_icono_tienda.png"));
         
         Object comision = body.get("comisionPorcentaje");
-        p.setComisionPorcentaje(comision != null ? new BigDecimal(comision.toString()) : new BigDecimal("2.50"));
+        p.setComisionPorcentaje(comision != null ? new BigDecimal(comision.toString()) : new BigDecimal("3.50"));
         p.setEstado("ACTIVO");
 
         Proveedor guardado = proveedorRepository.save(p);
@@ -333,7 +333,7 @@ public class AdminController {
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
             }
 
-            BigDecimal porcentaje = prov.getComisionPorcentaje() != null ? prov.getComisionPorcentaje() : new BigDecimal("2.50");
+            BigDecimal porcentaje = prov.getComisionPorcentaje() != null ? prov.getComisionPorcentaje() : new BigDecimal("3.50");
             BigDecimal deudaPrisma = ventasTotales.multiply(porcentaje).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP);
 
             long totalCamiones = todosCamiones.stream()
