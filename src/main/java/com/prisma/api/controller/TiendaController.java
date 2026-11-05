@@ -38,6 +38,18 @@ public class TiendaController {
         return ResponseEntity.ok(ApiResponse.exito("Perfil de tienda", tienda));
     }
 
+    @GetMapping("/catalogo")
+    @PreAuthorize("hasAnyAuthority('ROLE_TENDERO', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
+    @Operation(summary = "Explorar catálogo consolidado filtrado por zona geográfica, categoría y proveedor (HU-07)")
+    public ResponseEntity<ApiResponse<List<Producto>>> getCatalogoExplorar(
+            @AuthenticationPrincipal UserPrincipal currentUser,
+            @RequestParam(required = false) String zona,
+            @RequestParam(required = false) Long categoriaId,
+            @RequestParam(required = false) Long proveedorId) {
+        List<Producto> productos = tiendaService.getCatalogoExplorar(currentUser, zona, categoriaId, proveedorId);
+        return ResponseEntity.ok(ApiResponse.exito("Catálogo de productos filtrado por zona", productos));
+    }
+
     @GetMapping("/catalogo/{proveedorId}")
     @PreAuthorize("hasAnyAuthority('ROLE_TENDERO', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
     @Operation(summary = "Consultar catálogo de un proveedor específico")
@@ -59,8 +71,12 @@ public class TiendaController {
     @Operation(summary = "Crear nuevo pedido desde el carrito de compras (CU-T03 y CU-T04)")
     @AuditableAction(action = "CREAR_PEDIDO_TENDERO", severity = SeveridadAudit.INFO, resourceType = "PEDIDO")
     public ResponseEntity<ApiResponse<Pedido>> crearPedido(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKeyHeader,
             @RequestBody Map<String, Object> payload,
             @AuthenticationPrincipal UserPrincipal currentUser) {
+        if (idempotencyKeyHeader != null && !idempotencyKeyHeader.isBlank() && !payload.containsKey("idempotencyKey")) {
+            payload.put("idempotencyKey", idempotencyKeyHeader.trim());
+        }
         Pedido guardado = tiendaService.crearPedido(payload, currentUser);
         return ResponseEntity.ok(ApiResponse.exito("Pedido creado exitosamente contra entrega", guardado));
     }

@@ -8,7 +8,9 @@ import com.prisma.api.exception.BadRequestException;
 import com.prisma.api.exception.ResourceNotFoundException;
 import com.prisma.api.repository.*;
 import com.prisma.api.security.UserPrincipal;
+import com.prisma.api.service.PushNotificationService;
 import com.prisma.api.service.TiendaService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,9 @@ public class TiendaServiceImpl implements TiendaService {
     private final DisputaRepository disputaRepository;
     private final RutaRepository rutaRepository;
     private final UsuarioRepository usuarioRepository;
+
+    @Autowired(required = false)
+    private PushNotificationService pushNotificationService;
 
     public TiendaServiceImpl(TiendaRepository tiendaRepository,
                              ProductoRepository productoRepository,
@@ -65,6 +70,38 @@ public class TiendaServiceImpl implements TiendaService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<Producto> getCatalogoExplorar(UserPrincipal currentUser, String zona, Long categoriaId, Long proveedorId) {
+        String zonaFiltro = zona;
+        if ((zonaFiltro == null || zonaFiltro.isBlank()) && currentUser != null) {
+            Tienda miTienda = tiendaRepository.findFirstByTenderoId(currentUser.getId()).orElse(null);
+            if (miTienda != null && miTienda.getBarrio() != null && !miTienda.getBarrio().isBlank()) {
+                zonaFiltro = miTienda.getBarrio();
+            }
+        }
+
+        List<Producto> base = proveedorId != null
+                ? productoRepository.findByProveedorIdAndEstado(proveedorId, "ACTIVO")
+                : productoRepository.findAll().stream().filter(p -> "ACTIVO".equalsIgnoreCase(p.getEstado())).toList();
+
+        final String zLower = zonaFiltro != null ? zonaFiltro.trim().toLowerCase() : null;
+
+        return base.stream()
+                .filter(p -> {
+                    if (zLower == null || zLower.isEmpty()) {
+                        return true;
+                    }
+                    if (p.getProveedor() == null || p.getProveedor().getZonaCobertura() == null || p.getProveedor().getZonaCobertura().isBlank()) {
+                        return true;
+                    }
+                    String cob = p.getProveedor().getZonaCobertura().toLowerCase();
+                    return cob.contains(zLower) || cob.contains("todas") || cob.contains("bogot");
+                })
+                .filter(p -> categoriaId == null || (p.getCategoria() != null && categoriaId.equals(p.getCategoria().getId())))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<Pedido> getMisPedidos(UserPrincipal currentUser) {
         List<Pedido> pedidos = pedidoRepository.findByTenderoIdOrderByFechaCreacionDesc(currentUser.getId());
         if (pedidos.isEmpty()) {
@@ -78,6 +115,15 @@ public class TiendaServiceImpl implements TiendaService {
 
     @Override
     public Pedido crearPedido(Map<String, Object> payload, UserPrincipal currentUser) {
+        Object idemObj = payload.get("idempotencyKey");
+        String idempotencyKey = idemObj != null ? idemObj.toString().trim() : null;
+        if (idempotencyKey != null && !idempotencyKey.isEmpty()) {
+            var existente = pedidoRepository.findByIdempotencyKey(idempotencyKey);
+            if (existente.isPresent()) {
+                return existente.get();
+            }
+        }
+
         Tienda tienda = tiendaRepository.findFirstByTenderoId(currentUser.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Tienda no encontrada para el tendero autenticado"));
 
@@ -96,6 +142,9 @@ public class TiendaServiceImpl implements TiendaService {
         pedido.setEstado(EstadoPedido.CREADO);
         pedido.setFechaEstimadaEntrega(LocalDate.now());
         pedido.setMedioPagoUtilizado(MedioPago.EFECTIVO);
+        if (idempotencyKey != null && !idempotencyKey.isEmpty()) {
+            pedido.setIdempotencyKey(idempotencyKey);
+        }
 
         String pin = String.format("%06d", new SecureRandom().nextInt(1000000));
         pedido.setPinEntregaHash(pin);
@@ -108,6 +157,15 @@ public class TiendaServiceImpl implements TiendaService {
             int cantidad = Integer.parseInt(it.get("cantidad").toString());
             Producto prod = productoRepository.findById(prodId).orElse(null);
             if (prod != null) {
+                if (prod.getStockDisponible() <= 0) {
+                    throw new BadRequestException("El producto " + prod.getNombre() + " se encuentra Agotado");
+                }
+                if (cantidad < prod.getCantidadMinimaPedido()) {
+                    throw new BadRequestException("La cantidad mínima para este producto es " + prod.getCantidadMinimaPedido() + " unidades");
+                }
+                prod.setStockDisponible(Math.max(0, prod.getStockDisponible() - cantidad));
+                productoRepository.save(prod);
+
                 ItemPedido itemPedido = new ItemPedido();
                 itemPedido.setPedido(pedido);
                 itemPedido.setProducto(prod);
@@ -153,6 +211,10 @@ public class TiendaServiceImpl implements TiendaService {
         for (ItemPedido ip : itemsGuardados) {
             ip.setPedido(guardado);
             itemPedidoRepository.save(ip);
+        }
+
+        if (pushNotificationService != null) {
+            pushNotificationService.notificarNuevoPedidoProveedor(guardado);
         }
 
         return guardado;

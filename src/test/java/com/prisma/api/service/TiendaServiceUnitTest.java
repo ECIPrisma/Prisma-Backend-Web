@@ -110,4 +110,62 @@ class TiendaServiceUnitTest {
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("No hay pedidos previos");
     }
+
+    @Test
+    @DisplayName("HU-09 (AAA): crearPedido con Idempotency-Key repetida retorna el pedido existente sin duplicar")
+    void testCrearPedidoIdempotencyKeyExistente() {
+        // Arrange
+        UserPrincipal tendero = new UserPrincipal(
+                3L, "tendero@oasis.com", "hash", "Pedro Tienda", null,
+                List.of(new SimpleGrantedAuthority("ROLE_TENDERO"))
+        );
+        Pedido existente = new Pedido();
+        existente.setId(77L);
+        existente.setNumeroPedido("PED-2026-0077");
+        existente.setIdempotencyKey("uuid-idem-77");
+
+        when(pedidoRepository.findByIdempotencyKey("uuid-idem-77")).thenReturn(Optional.of(existente));
+
+        // Act
+        Pedido resultado = tiendaService.crearPedido(java.util.Map.of("idempotencyKey", "uuid-idem-77"), tendero);
+
+        // Assert
+        assertThat(resultado.getId()).isEqualTo(77L);
+        assertThat(resultado.getNumeroPedido()).isEqualTo("PED-2026-0077");
+        verify(pedidoRepository).findByIdempotencyKey("uuid-idem-77");
+    }
+
+    @Test
+    @DisplayName("HU-08 Edge Case (AAA): crearPedido con producto agotado (stock = 0) lanza BadRequestException")
+    void testCrearPedidoProductoAgotado() {
+        // Arrange
+        UserPrincipal tendero = new UserPrincipal(
+                3L, "tendero@oasis.com", "hash", "Pedro Tienda", null,
+                List.of(new SimpleGrantedAuthority("ROLE_TENDERO"))
+        );
+        Tienda tienda = new Tienda();
+        tienda.setId(1L);
+        com.prisma.api.entity.Proveedor prov = new com.prisma.api.entity.Proveedor();
+        prov.setId(1L);
+
+        Producto prodAgotado = new Producto();
+        prodAgotado.setId(50L);
+        prodAgotado.setNombre("Agua Brisa 600ml");
+        prodAgotado.setStockDisponible(0);
+        prodAgotado.setCantidadMinimaPedido(1);
+
+        when(tiendaRepository.findFirstByTenderoId(3L)).thenReturn(Optional.of(tienda));
+        when(proveedorRepository.findById(1L)).thenReturn(Optional.of(prov));
+        when(productoRepository.findById(50L)).thenReturn(Optional.of(prodAgotado));
+
+        java.util.Map<String, Object> payload = java.util.Map.of(
+                "proveedorId", 1L,
+                "items", List.of(java.util.Map.of("productoId", 50L, "cantidad", 2))
+        );
+
+        // Act & Assert
+        assertThatThrownBy(() -> tiendaService.crearPedido(payload, tendero))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Agotado");
+    }
 }

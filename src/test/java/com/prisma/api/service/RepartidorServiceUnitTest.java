@@ -137,4 +137,34 @@ class RepartidorServiceUnitTest {
         assertThat(res.get("estado")).isEqualTo("FINALIZADA");
         verify(rutaRepository).save(ruta);
     }
+
+    @Test
+    @DisplayName("HU-11 Edge Case (AAA): 3 intentos fallidos de OTP bloquean temporalmente el pedido")
+    void testBloqueoTemporalTrasTresIntentosFallidosPin() {
+        // Arrange
+        Pedido pedido = new Pedido();
+        pedido.setId(88L);
+        pedido.setPinEntregaHash("456789");
+
+        when(pedidoRepository.findById(88L)).thenReturn(Optional.of(pedido));
+
+        ConfirmarEntregaPinRequest reqErroneo = new ConfirmarEntregaPinRequest();
+        reqErroneo.setPin("000000");
+        reqErroneo.setMedioPago(MedioPago.EFECTIVO);
+
+        // Act & Assert: 3 intentos fallidos
+        for (int i = 1; i <= 3; i++) {
+            assertThatThrownBy(() -> repartidorService.confirmarEntrega(88L, reqErroneo))
+                    .isInstanceOf(BadRequestException.class);
+        }
+
+        // Act & Assert: 4to intento con el PIN correcto es rechazado por bloqueo activo
+        ConfirmarEntregaPinRequest reqCorrecto = new ConfirmarEntregaPinRequest();
+        reqCorrecto.setPin("456789");
+        reqCorrecto.setMedioPago(MedioPago.EFECTIVO);
+
+        assertThatThrownBy(() -> repartidorService.confirmarEntrega(88L, reqCorrecto))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("bloqueada temporalmente");
+    }
 }

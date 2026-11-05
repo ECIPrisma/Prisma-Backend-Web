@@ -9,7 +9,9 @@ import com.prisma.api.exception.ResourceNotFoundException;
 import com.prisma.api.repository.PedidoRepository;
 import com.prisma.api.repository.RutaRepository;
 import com.prisma.api.security.UserPrincipal;
+import com.prisma.api.service.PushNotificationService;
 import com.prisma.api.service.RepartidorService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,13 +21,21 @@ import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Transactional
 public class RepartidorServiceImpl implements RepartidorService {
 
+    private static final int MAX_INTENTOS_PIN = 3;
+
     private final RutaRepository rutaRepository;
     private final PedidoRepository pedidoRepository;
+    private final Map<Long, Integer> intentosPorPedido = new ConcurrentHashMap<>();
+    private final Map<Long, OffsetDateTime> bloqueoPorPedido = new ConcurrentHashMap<>();
+
+    @Autowired(required = false)
+    private PushNotificationService pushNotificationService;
 
     public RepartidorServiceImpl(RutaRepository rutaRepository, PedidoRepository pedidoRepository) {
         this.rutaRepository = rutaRepository;
@@ -55,7 +65,10 @@ public class RepartidorServiceImpl implements RepartidorService {
         for (Pedido p : pedidos) {
             if (p.getEstado() == EstadoPedido.CREADO || p.getEstado() == EstadoPedido.CARGADO_EN_BODEGA || p.getEstado() == EstadoPedido.ACEPTADO) {
                 p.setEstado(EstadoPedido.EN_RUTA);
-                pedidoRepository.save(p);
+                Pedido pGuardado = pedidoRepository.save(p);
+                if (pushNotificationService != null) {
+                    pushNotificationService.notificarCambioEstadoTendero(pGuardado);
+                }
             }
         }
 
@@ -98,13 +111,37 @@ public class RepartidorServiceImpl implements RepartidorService {
     }
 
     @Override
+    @Transactional(noRollbackFor = BadRequestException.class)
     public Pedido confirmarEntrega(Long pedidoId, ConfirmarEntregaPinRequest request) {
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido no encontrado con ID: " + pedidoId));
 
-        if (!pedido.getPinEntregaHash().equals(request.getPin().trim())) {
-            throw new BadRequestException("El PIN ingresado es incorrecto. Verifique con el tendero.");
+        OffsetDateTime bloqueadoHasta = pedido.getPinBloqueadoHasta() != null
+                ? pedido.getPinBloqueadoHasta()
+                : bloqueoPorPedido.get(pedidoId);
+
+        if (bloqueadoHasta != null && bloqueadoHasta.isAfter(OffsetDateTime.now())) {
+            throw new BadRequestException("Confirmación bloqueada temporalmente por superar el límite de intentos de OTP.");
         }
+
+        if (!pedido.getPinEntregaHash().equals(request.getPin().trim())) {
+            int nuevosIntentos = Math.max(pedido.getIntentosFallidosPin(), intentosPorPedido.getOrDefault(pedidoId, 0)) + 1;
+            pedido.setIntentosFallidosPin(nuevosIntentos);
+            intentosPorPedido.put(pedidoId, nuevosIntentos);
+
+            if (nuevosIntentos >= MAX_INTENTOS_PIN) {
+                OffsetDateTime bloqueo = OffsetDateTime.now().plusMinutes(15);
+                pedido.setPinBloqueadoHasta(bloqueo);
+                bloqueoPorPedido.put(pedidoId, bloqueo);
+                throw new BadRequestException("El PIN ingresado es incorrecto. Límite de reintentos alcanzado: confirmación bloqueada temporalmente.");
+            }
+            throw new BadRequestException("El PIN ingresado es incorrecto. Verifique con el tendero. Intentos restantes: " + (MAX_INTENTOS_PIN - nuevosIntentos));
+        }
+
+        pedido.setIntentosFallidosPin(0);
+        pedido.setPinBloqueadoHasta(null);
+        intentosPorPedido.remove(pedidoId);
+        bloqueoPorPedido.remove(pedidoId);
 
         pedido.setEstado(EstadoPedido.ENTREGADO);
         pedido.setPinValidadoEn(OffsetDateTime.now());
@@ -115,6 +152,9 @@ public class RepartidorServiceImpl implements RepartidorService {
         }
 
         Pedido guardado = pedidoRepository.save(pedido);
+        if (pushNotificationService != null) {
+            pushNotificationService.notificarCambioEstadoTendero(guardado);
+        }
 
         if (pedido.getRuta() != null) {
             Ruta r = pedido.getRuta();

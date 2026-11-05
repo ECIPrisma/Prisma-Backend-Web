@@ -42,6 +42,9 @@ public class Usuario {
     @Column(name = "intentos_fallidos_login", nullable = false)
     private int intentosFallidosLogin = 0;
 
+    @Column(name = "fcm_token", length = 500)
+    private String fcmToken;
+
     @Column(name = "creado_en", nullable = false, updatable = false)
     private OffsetDateTime creadoEn = OffsetDateTime.now();
 
@@ -87,6 +90,9 @@ public class Usuario {
 
     public int getIntentosFallidosLogin() { return intentosFallidosLogin; }
     public void setIntentosFallidosLogin(int intentosFallidosLogin) { this.intentosFallidosLogin = intentosFallidosLogin; }
+
+    public String getFcmToken() { return fcmToken; }
+    public void setFcmToken(String fcmToken) { this.fcmToken = fcmToken; }
 
     public OffsetDateTime getCreadoEn() { return creadoEn; }
     public void setCreadoEn(OffsetDateTime creadoEn) { this.creadoEn = creadoEn; }

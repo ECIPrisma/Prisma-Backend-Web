@@ -60,6 +60,15 @@ public class Pedido {
     @Column(name = "pin_validado_en")
     private OffsetDateTime pinValidadoEn;
 
+    @Column(name = "intentos_fallidos_pin", nullable = false)
+    private int intentosFallidosPin = 0;
+
+    @Column(name = "pin_bloqueado_hasta")
+    private OffsetDateTime pinBloqueadoHasta;
+
+    @Column(name = "idempotency_key", unique = true, length = 80)
+    private String idempotencyKey;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "medio_pago_utilizado", nullable = false, length = 25)
     private MedioPago medioPagoUtilizado = MedioPago.EFECTIVO;
@@ -123,6 +132,15 @@ public class Pedido {
 
     public OffsetDateTime getPinValidadoEn() { return pinValidadoEn; }
     public void setPinValidadoEn(OffsetDateTime pinValidadoEn) { this.pinValidadoEn = pinValidadoEn; }
+
+    public int getIntentosFallidosPin() { return intentosFallidosPin; }
+    public void setIntentosFallidosPin(int intentosFallidosPin) { this.intentosFallidosPin = intentosFallidosPin; }
+
+    public OffsetDateTime getPinBloqueadoHasta() { return pinBloqueadoHasta; }
+    public void setPinBloqueadoHasta(OffsetDateTime pinBloqueadoHasta) { this.pinBloqueadoHasta = pinBloqueadoHasta; }
+
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
 
     public MedioPago getMedioPagoUtilizado() { return medioPagoUtilizado; }
     public void setMedioPagoUtilizado(MedioPago medioPagoUtilizado) { this.medioPagoUtilizado = medioPagoUtilizado; }

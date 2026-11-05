@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Size;
 public class ConfirmarEntregaPinRequest {
 
     @NotBlank(message = "El PIN de entrega es obligatorio")
-    @Size(min = 4, max = 4, message = "El PIN debe tener exactamente 4 dígitos")
+    @Size(min = 4, max = 6, message = "El PIN debe tener entre 4 y 6 dígitos")
     private String pin;
 
     @NotNull(message = "El medio de pago es obligatorio")

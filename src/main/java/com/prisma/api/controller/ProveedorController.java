@@ -7,11 +7,15 @@ import com.prisma.api.enums.EstadoPedido;
 import com.prisma.api.enums.SeveridadAudit;
 import com.prisma.api.enums.TipoIncidente;
 import com.prisma.api.enums.Rol;
+import com.prisma.api.exception.ApiException;
+import com.prisma.api.exception.BadRequestException;
 import com.prisma.api.repository.*;
 import com.prisma.api.security.AislamientoTenant;
 import com.prisma.api.security.UserPrincipal;
+import com.prisma.api.service.PushNotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -46,6 +50,9 @@ public class ProveedorController {
     private final ItemPedidoRepository itemPedidoRepository;
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
+
+    @Autowired(required = false)
+    private PushNotificationService pushNotificationService;
 
     public ProveedorController(
             ProductoRepository productoRepository,
@@ -120,8 +127,17 @@ public class ProveedorController {
         Object stockObj = body.get("stockDisponible");
         p.setStockDisponible(stockObj != null ? Integer.parseInt(stockObj.toString()) : 50);
 
-        Object cantMinObj = body.get("cantidadMinimaPedido");
-        p.setCantidadMinimaPedido(cantMinObj != null ? Integer.parseInt(cantMinObj.toString()) : 1);
+        Object cantMinObj = body.containsKey("cantidadMinimaPedido") ? body.get("cantidadMinimaPedido") : body.get("minOrderQty");
+        int cantMin = cantMinObj != null ? Integer.parseInt(cantMinObj.toString()) : 1;
+        if (cantMin <= 0) {
+            throw new BadRequestException("La cantidad mínima debe ser mayor a 0");
+        }
+        p.setCantidadMinimaPedido(cantMin);
+
+        if (body.containsKey("zonasCobertura") && body.get("zonasCobertura") != null) {
+            prov.setZonaCobertura(body.get("zonasCobertura").toString());
+            proveedorRepository.save(prov);
+        }
 
         p.setEsRetornable(Boolean.parseBoolean(String.valueOf(body.getOrDefault("esRetornable", false))));
         p.setImagenUrl((String) body.getOrDefault("imagenUrl", "/logo_icono_tienda.png"));
@@ -150,7 +166,18 @@ public class ProveedorController {
         if (body.containsKey("presentacion")) p.setPresentacion(body.get("presentacion").toString());
         if (body.containsKey("precioUnitario")) p.setPrecioUnitario(new BigDecimal(body.get("precioUnitario").toString()));
         if (body.containsKey("precioSugeridoPublico")) p.setPrecioSugeridoPublico(new BigDecimal(body.get("precioSugeridoPublico").toString()));
-        if (body.containsKey("stockDisponible")) p.setStockDisponible(Integer.parseInt(body.get("stockDisponible").toString()));
+        if (body.containsKey("stockDisponible")) {
+            int nuevoStock = Integer.parseInt(body.get("stockDisponible").toString());
+            p.setStockDisponible(nuevoStock);
+        }
+        if (body.containsKey("cantidadMinimaPedido") || body.containsKey("minOrderQty")) {
+            Object cmObj = body.containsKey("cantidadMinimaPedido") ? body.get("cantidadMinimaPedido") : body.get("minOrderQty");
+            int cantMin = Integer.parseInt(cmObj.toString());
+            if (cantMin <= 0) {
+                throw new BadRequestException("La cantidad mínima debe ser mayor a 0");
+            }
+            p.setCantidadMinimaPedido(cantMin);
+        }
         if (body.containsKey("imagenUrl")) p.setImagenUrl(body.get("imagenUrl").toString());
         if (body.containsKey("estado")) p.setEstado(body.get("estado").toString());
 
@@ -255,12 +282,39 @@ public class ProveedorController {
 
         String nuevoEstado = body.get("estado");
         if (nuevoEstado != null) {
-            pedido.setEstado(EstadoPedido.valueOf(nuevoEstado));
+            EstadoPedido estadoDestino = resolverEstadoPedido(nuevoEstado);
+            EstadoPedido estadoActual = pedido.getEstado();
+
+            if (estadoActual == EstadoPedido.CANCELADO || estadoActual == EstadoPedido.RECHAZADO
+                    || (estadoActual == EstadoPedido.ENTREGADO && estadoDestino != EstadoPedido.ENTREGADO)) {
+                throw new ApiException(HttpStatus.CONFLICT, "Transición de estado no permitida");
+            }
+
+            pedido.setEstado(estadoDestino);
             pedido.setActualizadoEn(OffsetDateTime.now());
         }
 
         Pedido guardado = pedidoRepository.save(pedido);
+        if (pushNotificationService != null) {
+            pushNotificationService.notificarCambioEstadoTendero(guardado);
+        }
         return ResponseEntity.ok(ApiResponse.exito("Estado de pedido actualizado a " + nuevoEstado, guardado));
+    }
+
+    private EstadoPedido resolverEstadoPedido(String raw) {
+        String norm = raw.trim().toUpperCase().replace(" ", "_");
+        return switch (norm) {
+            case "CONFIRMADO" -> EstadoPedido.ACEPTADO;
+            case "EN_DESPACHO" -> EstadoPedido.EN_RUTA;
+            case "ANULADO" -> EstadoPedido.CANCELADO;
+            default -> {
+                try {
+                    yield EstadoPedido.valueOf(norm);
+                } catch (IllegalArgumentException ex) {
+                    throw new ApiException(HttpStatus.CONFLICT, "Transición de estado no permitida");
+                }
+            }
+        };
     }
 
     @GetMapping("/repartidores")
