@@ -17,11 +17,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+
+      - name: Run Automated Backend Tests (JUnit 5 & MockMvc)
+        run: ./mvnw test
 
       - name: Build and Package with Maven (Java 21)
         run: ./mvnw clean package -DskipTests
