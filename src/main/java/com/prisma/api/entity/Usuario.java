@@ -2,6 +2,7 @@ package com.prisma.api.entity;
 
 import com.prisma.api.enums.Rol;
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.time.OffsetDateTime;
 
 @Entity
@@ -44,6 +45,16 @@ public class Usuario {
 
     @Column(name = "fcm_token", length = 500)
     private String fcmToken;
+
+    @JsonIgnore
+    @Column(name = "totp_secret_encrypted", length = 512)
+    private String totpSecretEncrypted;
+
+    @Column(name = "totp_enabled", nullable = false)
+    private boolean totpEnabled = false;
+
+    @Column(name = "totp_last_used_step")
+    private Long totpLastUsedStep;
 
     @Column(name = "creado_en", nullable = false, updatable = false)
     private OffsetDateTime creadoEn = OffsetDateTime.now();
@@ -93,6 +104,15 @@ public class Usuario {
 
     public String getFcmToken() { return fcmToken; }
     public void setFcmToken(String fcmToken) { this.fcmToken = fcmToken; }
+
+    public String getTotpSecretEncrypted() { return totpSecretEncrypted; }
+    public void setTotpSecretEncrypted(String totpSecretEncrypted) { this.totpSecretEncrypted = totpSecretEncrypted; }
+
+    public boolean isTotpEnabled() { return totpEnabled; }
+    public void setTotpEnabled(boolean totpEnabled) { this.totpEnabled = totpEnabled; }
+
+    public Long getTotpLastUsedStep() { return totpLastUsedStep; }
+    public void setTotpLastUsedStep(Long totpLastUsedStep) { this.totpLastUsedStep = totpLastUsedStep; }
 
     public OffsetDateTime getCreadoEn() { return creadoEn; }
     public void setCreadoEn(OffsetDateTime creadoEn) { this.creadoEn = creadoEn; }

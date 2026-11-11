@@ -2,8 +2,11 @@ package com.prisma.api.service;
 
 import com.prisma.api.dto.AuthResponse;
 import com.prisma.api.dto.LoginRequest;
+import com.prisma.api.entity.Usuario;
+import com.prisma.api.repository.UsuarioRepository;
 import com.prisma.api.security.JwtTokenProvider;
 import com.prisma.api.security.UserPrincipal;
+import com.prisma.api.service.TotpAuthService;
 import com.prisma.api.service.impl.AuthServiceImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -34,6 +37,12 @@ class AuthServiceUnitTest {
     @Mock
     private JwtTokenProvider tokenProvider;
 
+    @Mock
+    private UsuarioRepository usuarioRepository;
+
+    @Mock
+    private TotpAuthService totpAuthService;
+
     @InjectMocks
     private AuthServiceImpl authService;
 
@@ -46,8 +55,12 @@ class AuthServiceUnitTest {
                 null, Collections.singletonList(new SimpleGrantedAuthority("ROLE_ADMIN"))
         );
         Authentication auth = new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+        Usuario usuario = new Usuario();
+        usuario.setId(1L);
+        usuario.setEstado("ACTIVO");
 
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class))).thenReturn(auth);
+        when(usuarioRepository.findByIdForUpdate(1L)).thenReturn(java.util.Optional.of(usuario));
         when(tokenProvider.generateToken(auth)).thenReturn("mocked.jwt.token");
 
         AuthResponse resp = authService.authenticate(req);
@@ -57,6 +70,7 @@ class AuthServiceUnitTest {
         assertThat(resp.getEmail()).isEqualTo("admin@prisma.com.co");
         assertThat(resp.getRol()).isEqualTo("ROLE_ADMIN");
         verify(authenticationManager).authenticate(any(UsernamePasswordAuthenticationToken.class));
+        verify(totpAuthService).validateLoginCode(usuario, null);
         verify(tokenProvider).generateToken(auth);
     }
 

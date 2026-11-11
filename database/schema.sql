@@ -57,6 +57,9 @@ CREATE TABLE usuarios (
     estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO' CHECK (estado IN ('ACTIVO', 'INACTIVO', 'BLOQUEADO')),
     ultimo_login TIMESTAMPTZ,
     intentos_fallidos_login INT NOT NULL DEFAULT 0,
+    totp_secret_encrypted VARCHAR(512),
+    totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    totp_last_used_step BIGINT,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
