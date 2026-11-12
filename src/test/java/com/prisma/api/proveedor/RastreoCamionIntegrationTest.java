@@ -97,4 +97,53 @@ class RastreoCamionIntegrationTest {
                 .andExpect(jsonPath("$.exitoso").value(true))
                 .andExpect(jsonPath("$.datos.latitud").value(4.68));
     }
+
+    @Test
+    @DisplayName("Rastreo GPS: Múltiples actualizaciones de posición reflejan el punto más reciente")
+    void testHistorialYUltimaPosicion() throws Exception {
+        // Enviar posición 1
+        mockMvc.perform(post("/api/v1/repartidores/rutas/1/posicion")
+                        .header("Authorization", "Bearer " + tokenRepartidor)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "latitud", 4.6100,
+                                "longitud", -74.0800,
+                                "velocidadKmh", 20.0
+                        ))))
+                .andExpect(status().isOk());
+
+        // Enviar posición 2 (más adelante en la ruta)
+        mockMvc.perform(post("/api/v1/repartidores/rutas/1/posicion")
+                        .header("Authorization", "Bearer " + tokenRepartidor)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "latitud", 4.6250,
+                                "longitud", -74.0750,
+                                "velocidadKmh", 48.0
+                        ))))
+                .andExpect(status().isOk());
+
+        // Verificar que GET /progreso entrega la posición 2 más reciente
+        mockMvc.perform(get("/api/v1/proveedores/rutas/progreso")
+                        .header("Authorization", "Bearer " + tokenProveedor))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.datos[0].ubicacionActual.latitud").value(4.625))
+                .andExpect(jsonPath("$.datos[0].ubicacionActual.longitud").value(-74.075))
+                .andExpect(jsonPath("$.datos[0].ubicacionActual.velocidadKmh").value(48.0));
+    }
+
+    @Test
+    @DisplayName("Seguridad RBAC: Usuario tendero no puede registrar telemetría de reparto (403 Forbidden)")
+    void testSeguridadRbac_NoConductorNoTransmiteGps() throws Exception {
+        String tokenTendero = login("dona.marta@labendicion.com", "admin123");
+
+        mockMvc.perform(post("/api/v1/repartidores/rutas/1/posicion")
+                        .header("Authorization", "Bearer " + tokenTendero)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "latitud", 4.6100,
+                                "longitud", -74.0800
+                        ))))
+                .andExpect(status().isForbidden());
+    }
 }
