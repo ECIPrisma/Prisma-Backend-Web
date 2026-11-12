@@ -97,4 +97,40 @@ class AdminSecurityIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.exitoso").value(true));
     }
+
+    @Test
+    @DisplayName("Admin puede listar los usuarios del sistema (HTTP 200)")
+    void testListarUsuariosComoAdmin() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/usuarios")
+                        .header("Authorization", "Bearer " + tokenAdmin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exitoso").value(true))
+                .andExpect(jsonPath("$.datos").isArray());
+    }
+
+    @Test
+    @DisplayName("Proveedor no puede listar los usuarios del sistema (HTTP 403 Forbidden)")
+    void testListarUsuariosComoProveedorBloqueado() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/usuarios")
+                        .header("Authorization", "Bearer " + tokenProveedor))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Admin puede restablecer y desactivar el 2FA de un usuario (HTTP 200)")
+    void testResetTotpUsuarioComoAdmin() throws Exception {
+        mockMvc.perform(post("/api/v1/admin/usuarios/1/reset-totp")
+                        .header("Authorization", "Bearer " + tokenAdmin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.exitoso").value(true))
+                .andExpect(jsonPath("$.datos.enabled").value(false));
+    }
+
+    @Test
+    @DisplayName("Proveedor no puede restablecer el 2FA de un usuario (HTTP 403 Forbidden)")
+    void testResetTotpUsuarioComoProveedorBloqueado() throws Exception {
+        mockMvc.perform(post("/api/v1/admin/usuarios/1/reset-totp")
+                        .header("Authorization", "Bearer " + tokenProveedor))
+                .andExpect(status().isForbidden());
+    }
 }

@@ -89,6 +89,17 @@ public class TotpAuthService {
     }
 
     @Transactional
+    public TotpStatusResponse adminReset(Long userId) {
+        Usuario usuario = findUserForUpdate(userId);
+        usuario.setTotpEnabled(false);
+        usuario.setTotpSecretEncrypted(null);
+        usuario.setTotpLastUsedStep(null);
+        usuarioRepository.save(usuario);
+        refreshTokenRepository.revokeAllForUsuario(usuario.getId());
+        return new TotpStatusResponse(false);
+    }
+
+    @Transactional
     public void validateLoginCode(Usuario usuario, String code) {
         if (!usuario.isTotpEnabled()) {
             return;
