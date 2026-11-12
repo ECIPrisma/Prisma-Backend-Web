@@ -9,6 +9,7 @@ import com.prisma.api.entity.Pedido;
 import com.prisma.api.enums.EstadoPagoPedido;
 import com.prisma.api.enums.EstadoPedido;
 import com.prisma.api.exception.ApiException;
+import com.prisma.api.pagos.PasarelaPagosResiliente;
 import com.prisma.api.pagos.PasarelaPagosSimulada;
 import com.prisma.api.pagos.ReglasSplitPayment;
 import com.prisma.api.repository.PagoPedidoRepository;
@@ -34,13 +35,16 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
     private final PagoPedidoRepository pagoRepository;
     private final PedidoRepository pedidoRepository;
     private final PasarelaPagosSimulada pasarela;
+    private final PasarelaPagosResiliente pasarelaResiliente;
     private final WebhookPagosService webhookPagosService;
 
     public PagoPedidoServiceImpl(PagoPedidoRepository pagoRepository, PedidoRepository pedidoRepository,
-                                 PasarelaPagosSimulada pasarela, WebhookPagosService webhookPagosService) {
+                                 PasarelaPagosSimulada pasarela, PasarelaPagosResiliente pasarelaResiliente,
+                                 WebhookPagosService webhookPagosService) {
         this.pagoRepository = pagoRepository;
         this.pedidoRepository = pedidoRepository;
         this.pasarela = pasarela;
+        this.pasarelaResiliente = pasarelaResiliente;
         this.webhookPagosService = webhookPagosService;
     }
 
@@ -59,7 +63,9 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
             throw new ApiException(HttpStatus.CONFLICT, "Este pedido ya no admite pagos en línea.");
         }
 
-        PasarelaPagosSimulada.Resultado resultado = pasarela.procesar(datos.getMedio(), datos);
+        // HU-19: la llamada a la pasarela pasa por el circuit breaker. Si está abierto responde 503 de inmediato
+        // y no se crea ningún registro de pago (el pedido no cambia).
+        PasarelaPagosSimulada.Resultado resultado = pasarelaResiliente.procesar(datos.getMedio(), datos);
         // HU-13: un solo movimiento del tendero; 3.5% PRISMA y 96.5% proveedor, calculados juntos (atómico)
         DivisionPago division = ReglasSplitPayment.dividir(pedido.getTotalAPagar());
 

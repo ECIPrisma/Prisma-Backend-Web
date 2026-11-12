@@ -1,11 +1,12 @@
 ﻿# ==============================================================================
-# Pruebas de la pasarela de pagos SIMULADA (HU-12 / N-08 / HU-13) contra el backend LOCAL.
+# Pruebas de la pasarela de pagos SIMULADA (HU-12 / N-08 / HU-13 / HU-14 / HU-19) contra el backend LOCAL.
 # Requisito: backend corriendo con el perfil dev (H2 en memoria) en http://localhost:8080
 #   .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=dev"
 # Uso (desde la carpeta Prisma-Backend-Web):
 #   powershell -ExecutionPolicy Bypass -File .\scripts\probar-pagos.ps1
+#   (agrega -SinCircuito para saltar la prueba del circuit breaker, que tarda ~1 minuto)
 # ==============================================================================
-param([string]$Base = "http://localhost:8080/api/v1")
+param([string]$Base = "http://localhost:8080/api/v1", [switch]$SinCircuito)
 
 $ErrorActionPreference = "Stop"
 $script:ok = 0
@@ -173,6 +174,57 @@ Verificar "CP-20 No se vinculan dos cuentas (409)" ($r.Status -eq 409) "HTTP $($
 
 $r = Llamar "GET" "/proveedores/pagos/cuenta" $tendero $null
 Verificar "CP-21 El tendero no accede a cuentas de cobro (403)" ($r.Status -eq 403) "HTTP $($r.Status)"
+
+# ------------------------------------------------------------------------------
+if (-not $SinCircuito) {
+    Write-Host "`n=== Circuit breaker de la pasarela (HU-19) - tarda cerca de 1 minuto ===" -ForegroundColor Cyan
+    $admin = Login "admin@prisma.com.co" "admin123"
+    $null = Llamar "POST" "/admin/pagos/circuito/reiniciar" $admin $null   # empezar con el circuito cerrado
+
+    $pedidoCB = CrearPedido $tendero
+    $rutaCB = "/tiendas/pedidos/$($pedidoCB.id)/pago"
+    $caida = '{"medio":"NEQUI","celular":"3993333333"}'
+    $aprueba = '{"medio":"NEQUI","celular":"3991111111"}'
+
+    Write-Host "  Simulando la pasarela caída (cada intento tarda ~2 s, como un timeout)..."
+    $abierto = $false
+    for ($i = 1; $i -le 10 -and -not $abierto; $i++) {
+        $r = Llamar "POST" $rutaCB $tendero $caida
+        $estado = (Llamar "GET" "/admin/pagos/circuito" $admin $null).Json.datos.estado
+        Write-Host "          Intento $i -> HTTP $($r.Status), circuito $estado"
+        $abierto = ($estado -eq "OPEN")
+    }
+    Verificar "CP-CB1 Tras superar el umbral de errores el circuito se ABRE" $abierto "el circuito no se abrió"
+
+    $reloj = [System.Diagnostics.Stopwatch]::StartNew()
+    $r = Llamar "POST" $rutaCB $tendero $aprueba
+    $reloj.Stop()
+    Verificar "CP-CB2 Con el circuito abierto: 503 'Servicio de pagos temporalmente no disponible'" ($r.Status -eq 503 -and $r.Json.mensaje -eq "Servicio de pagos temporalmente no disponible") "HTTP $($r.Status) '$($r.Json.mensaje)'"
+    Verificar "CP-CB3 Responde de inmediato, sin esperar el timeout ($($reloj.ElapsedMilliseconds) ms)" ($reloj.ElapsedMilliseconds -lt 1500) "$($reloj.ElapsedMilliseconds) ms"
+    $r = Llamar "GET" $rutaCB $tendero $null
+    Verificar "CP-CB4 El pedido no cambió: no se creó ningún pago (404)" ($r.Status -eq 404) "HTTP $($r.Status)"
+
+    $espera = [int](Llamar "GET" "/admin/pagos/circuito" $admin $null).Json.datos.esperaAbiertoSegundos
+    if ($espera -le 0) { $espera = 30 }
+    Write-Host "  Esperando $($espera + 2) s (tiempo configurado con el circuito abierto)..."
+    Start-Sleep -Seconds ($espera + 2)
+
+    # Half-open: llamadas de prueba exitosas (cada una en un pedido nuevo para que no esté ya pagado)
+    $pruebas = [int](Llamar "GET" "/admin/pagos/circuito" $admin $null).Json.datos.llamadasPruebaSemiabierto
+    if ($pruebas -le 0) { $pruebas = 2 }
+    $todasOk = $true
+    for ($i = 1; $i -le $pruebas; $i++) {
+        $p = CrearPedido $tendero
+        $r = Llamar "POST" "/tiendas/pedidos/$($p.id)/pago" $tendero $aprueba
+        Write-Host "          Llamada de prueba $i -> HTTP $($r.Status) $($r.Json.datos.estado)"
+        if ($r.Status -ne 200) { $todasOk = $false }
+    }
+    $estado = (Llamar "GET" "/admin/pagos/circuito" $admin $null).Json.datos.estado
+    Verificar "CP-CB5 Half-open: las llamadas de prueba exitosas CIERRAN el circuito" ($todasOk -and $estado -eq "CLOSED") "estado $estado"
+
+    $r = Llamar "POST" $rutaCB $tendero $aprueba
+    Verificar "CP-CB6 Los pagos vuelven a procesarse con normalidad" ($r.Status -eq 200 -and $r.Json.datos.estado -eq "EN_GARANTIA") "HTTP $($r.Status)"
+}
 
 # ------------------------------------------------------------------------------
 $color = if ($script:fallos -eq 0) { "Green" } else { "Red" }

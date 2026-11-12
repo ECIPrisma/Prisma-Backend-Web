@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prisma.api.dto.PagarPedidoRequest;
 import com.prisma.api.enums.MedioPagoEnLinea;
 import com.prisma.api.exception.ApiException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -25,7 +26,8 @@ import java.time.format.DateTimeParseException;
  * <p>No se conecta a ningún servicio externo ni mueve dinero. Responde de forma determinista con los
  * mismos datos de prueba que publica el sandbox de Wompi, para poder demostrar pagos aprobados y rechazados:</p>
  * <ul>
- *   <li>Nequi: 3991111111 aprueba, 3992222222 rechaza (cualquier otro celular válido aprueba).</li>
+ *   <li>Nequi: 3991111111 aprueba, 3992222222 rechaza, 3993333333 simula la pasarela caída (HU-19);
+ *       cualquier otro celular válido aprueba.</li>
  *   <li>PSE: "Banco que rechaza" rechaza; cualquier otro banco aprueba.</li>
  *   <li>Tarjeta: 4111 1111 1111 1111 rechaza; cualquier otra tarjeta válida (Luhn) aprueba, ej. 4242 4242 4242 4242.</li>
  * </ul>
@@ -37,6 +39,8 @@ public class PasarelaPagosSimulada {
 
     public static final String NEQUI_APRUEBA = "3991111111";
     public static final String NEQUI_RECHAZA = "3992222222";
+    /** HU-19: simula que la pasarela está caída (tarda y no responde) para poder abrir el circuit breaker. */
+    public static final String NEQUI_PASARELA_CAIDA = "3993333333";
     public static final String PSE_BANCO_RECHAZA = "Banco que rechaza";
     public static final String TARJETA_APRUEBA = "4242424242424242";
     public static final String TARJETA_RECHAZA = "4111111111111111";
@@ -47,6 +51,10 @@ public class PasarelaPagosSimulada {
 
     private final FirmaEventosWompi firma;
     private final ObjectMapper objectMapper;
+
+    /** HU-19: cuánto "espera" la pasarela caída antes de fallar (imita un timeout). 0 en pruebas automáticas. */
+    @Value("${prisma.pagos.simulacion.demora-falla-ms:2000}")
+    private long demoraFallaMs = 0;
 
     public PasarelaPagosSimulada(FirmaEventosWompi firma, ObjectMapper objectMapper) {
         this.firma = firma;
@@ -98,6 +106,18 @@ public class PasarelaPagosSimulada {
         return evento;
     }
 
+    /** HU-19: la pasarela tarda (como un timeout) y termina sin responder. */
+    private void simularCaida() {
+        if (demoraFallaMs > 0) {
+            try {
+                Thread.sleep(demoraFallaMs);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        throw new PasarelaNoDisponibleException("Timeout simulado: la pasarela de pagos no respondió");
+    }
+
     public static long enCentavos(BigDecimal monto) {
         return monto.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
     }
@@ -117,6 +137,9 @@ public class PasarelaPagosSimulada {
         String celular = soloDigitos(datos.getCelular());
         if (celular.length() != 10 || !celular.startsWith("3")) {
             throw invalido("Ingresa un celular Nequi válido de 10 dígitos");
+        }
+        if (NEQUI_PASARELA_CAIDA.equals(celular)) {
+            simularCaida();
         }
         String detalle = "Nequi ••• " + celular.substring(6);
         if (NEQUI_RECHAZA.equals(celular)) {
