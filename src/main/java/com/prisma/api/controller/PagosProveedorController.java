@@ -3,10 +3,12 @@ package com.prisma.api.controller;
 import com.prisma.api.aspect.AuditableAction;
 import com.prisma.api.dto.ApiResponse;
 import com.prisma.api.dto.CuentaCobroResponse;
-import com.prisma.api.dto.VinculacionCallbackRequest;
+import com.prisma.api.dto.RecaudosProveedorResponse;
+import com.prisma.api.dto.VincularCuentaCobroRequest;
 import com.prisma.api.enums.SeveridadAudit;
 import com.prisma.api.security.UserPrincipal;
 import com.prisma.api.service.CuentaCobroService;
+import com.prisma.api.service.PagoPedidoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
@@ -14,22 +16,22 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
-
 /**
- * HU-12 – Vinculación de la cuenta de cobro del proveedor con Mercado Pago por OAuth.
+ * HU-12 – Cuenta de cobro del proveedor y pagos recibidos. La pasarela (Wompi sandbox) está SIMULADA.
  */
 @RestController
 @RequestMapping("/api/v1/proveedores/pagos")
-@Tag(name = "Pagos del Proveedor", description = "Vinculación de la cuenta de cobro (OAuth Mercado Pago) para recibir pagos divididos")
+@Tag(name = "Pagos del Proveedor", description = "Cuenta de cobro y pagos en línea recibidos (pasarela simulada)")
 public class PagosProveedorController {
 
     private static final String ROLES_PROVEEDOR = "hasAnyAuthority('ROLE_PROVEEDOR_ADMIN', 'ROLE_PROVEEDOR')";
 
     private final CuentaCobroService cuentaCobroService;
+    private final PagoPedidoService pagoPedidoService;
 
-    public PagosProveedorController(CuentaCobroService cuentaCobroService) {
+    public PagosProveedorController(CuentaCobroService cuentaCobroService, PagoPedidoService pagoPedidoService) {
         this.cuentaCobroService = cuentaCobroService;
+        this.pagoPedidoService = pagoPedidoService;
     }
 
     @GetMapping("/cuenta")
@@ -39,23 +41,16 @@ public class PagosProveedorController {
         return ResponseEntity.ok(ApiResponse.exito("Estado de la cuenta de cobro", cuentaCobroService.obtenerEstado(currentUser)));
     }
 
-    @PostMapping("/vinculacion")
-    @PreAuthorize(ROLES_PROVEEDOR)
-    @Operation(summary = "Iniciar la vinculación con Mercado Pago", description = "Devuelve la URL de autorización OAuth a la que se debe redirigir al proveedor")
-    public ResponseEntity<ApiResponse<Map<String, String>>> iniciar(@AuthenticationPrincipal UserPrincipal currentUser) {
-        String url = cuentaCobroService.iniciarVinculacion(currentUser);
-        return ResponseEntity.ok(ApiResponse.exito("Redirija al proveedor a Mercado Pago", Map.of("urlAutorizacion", url)));
-    }
-
-    @PostMapping("/vinculacion/callback")
+    @PostMapping("/cuenta")
     @PreAuthorize(ROLES_PROVEEDOR)
     @AuditableAction(action = "CUENTA_COBRO_VINCULADA", severity = SeveridadAudit.SECURITY, resourceType = "PROVEEDOR")
-    @Operation(summary = "Completar la vinculación", description = "Recibe el code y el state del redirect de Mercado Pago, guarda el token cifrado y habilita los pagos divididos")
-    public ResponseEntity<ApiResponse<CuentaCobroResponse>> completar(
+    @Operation(summary = "Vincular mi cuenta de cobro (simulado)",
+            description = "Simula la verificación de la cuenta bancaria en la pasarela. Una cuenta terminada en 0000 simula un rechazo.")
+    public ResponseEntity<ApiResponse<CuentaCobroResponse>> vincular(
             @AuthenticationPrincipal UserPrincipal currentUser,
-            @RequestBody VinculacionCallbackRequest callback) {
-        CuentaCobroResponse estado = cuentaCobroService.completarVinculacion(currentUser, callback);
-        return ResponseEntity.ok(ApiResponse.exito("Cuenta de cobro vinculada correctamente", estado));
+            @RequestBody VincularCuentaCobroRequest datos) {
+        return ResponseEntity.ok(ApiResponse.exito("Cuenta de cobro vinculada correctamente",
+                cuentaCobroService.vincular(currentUser, datos)));
     }
 
     @DeleteMapping("/cuenta")
@@ -65,5 +60,12 @@ public class PagosProveedorController {
     public ResponseEntity<ApiResponse<Void>> desvincular(@AuthenticationPrincipal UserPrincipal currentUser) {
         cuentaCobroService.desvincular(currentUser);
         return ResponseEntity.ok(ApiResponse.exito("Cuenta de cobro desvinculada", null));
+    }
+
+    @GetMapping("/recaudos")
+    @PreAuthorize(ROLES_PROVEEDOR)
+    @Operation(summary = "Pagos en línea de mis pedidos", description = "Pagos retenidos en garantía y pagos liberados tras la entrega")
+    public ResponseEntity<ApiResponse<RecaudosProveedorResponse>> recaudos(@AuthenticationPrincipal UserPrincipal currentUser) {
+        return ResponseEntity.ok(ApiResponse.exito("Pagos en línea recibidos", pagoPedidoService.recaudosProveedor(currentUser)));
     }
 }

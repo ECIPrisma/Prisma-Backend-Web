@@ -435,33 +435,46 @@ COMMENT ON TABLE refresh_tokens IS 'Refresh tokens opacos para renovar el JWT de
 CREATE INDEX idx_refresh_tokens_usuario_id ON refresh_tokens (usuario_id);
 
 -- ==============================================================================
--- HU-12: Cuenta de cobro del proveedor en la pasarela de pagos (Mercado Pago, OAuth)
+-- HU-12 / N-08: Pasarela de pagos SIMULADA (mockup del sandbox de Wompi, sin cobros reales)
 -- ==============================================================================
-CREATE TABLE cuentas_cobro_proveedor (
+CREATE TABLE cuentas_recaudo_proveedor (
     id BIGSERIAL PRIMARY KEY,
     proveedor_id BIGINT NOT NULL UNIQUE REFERENCES proveedores(id) ON DELETE CASCADE,
-    pasarela VARCHAR(30) NOT NULL DEFAULT 'MERCADO_PAGO',
-    cuenta_externa_id VARCHAR(40) NOT NULL,          -- user_id del vendedor en Mercado Pago
-    access_token_cifrado TEXT NOT NULL,              -- AES-256-GCM, nunca en texto plano
-    refresh_token_cifrado TEXT,
-    public_key VARCHAR(200),
-    scope VARCHAR(120),
+    pasarela VARCHAR(30) NOT NULL,                   -- 'WOMPI_SANDBOX_SIMULADO'
+    cuenta_externa_id VARCHAR(40) NOT NULL,          -- id de comercio simulado, ej. WMP-SBX-4K8Z2QH1
+    banco VARCHAR(80) NOT NULL,
+    tipo_cuenta VARCHAR(20) NOT NULL CHECK (tipo_cuenta IN ('AHORROS', 'CORRIENTE')),
+    numero_cuenta_ultimos4 VARCHAR(4) NOT NULL,      -- nunca se guarda el número completo
+    titular VARCHAR(120) NOT NULL,
     modo_produccion BOOLEAN NOT NULL DEFAULT FALSE,
-    token_expira_en TIMESTAMPTZ,
-    vinculada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-    actualizada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+    vinculada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 
-CREATE TABLE solicitudes_vinculacion_pago (
+CREATE TABLE pagos_pedido (
     id BIGSERIAL PRIMARY KEY,
-    state VARCHAR(64) NOT NULL UNIQUE,               -- anti-CSRF del flujo OAuth
-    proveedor_id BIGINT NOT NULL REFERENCES proveedores(id) ON DELETE CASCADE,
-    usuario_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
-    code_verifier VARCHAR(128) NOT NULL,             -- secreto PKCE
-    expira_en TIMESTAMPTZ NOT NULL,
-    usada BOOLEAN NOT NULL DEFAULT FALSE,
-    creada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+    pedido_id BIGINT NOT NULL,
+    numero_pedido VARCHAR(30) NOT NULL,
+    proveedor_id BIGINT NOT NULL,
+    tendero_id BIGINT NOT NULL,
+    nombre_tienda VARCHAR(150),
+    referencia VARCHAR(60) NOT NULL UNIQUE,
+    transaccion_id VARCHAR(40) NOT NULL,             -- id de transacción simulado, ej. SBX-...
+    pasarela VARCHAR(30) NOT NULL,
+    medio VARCHAR(15) NOT NULL CHECK (medio IN ('NEQUI', 'PSE', 'TARJETA')),
+    detalle_medio VARCHAR(80) NOT NULL,              -- enmascarado: 'VISA •••• 4242', 'Nequi ••• 1111'
+    monto NUMERIC(12, 2) NOT NULL CHECK (monto >= 0),
+    comision_prisma NUMERIC(12, 2) NOT NULL CHECK (comision_prisma >= 0),
+    monto_proveedor NUMERIC(12, 2) NOT NULL CHECK (monto_proveedor >= 0),
+    estado VARCHAR(15) NOT NULL CHECK (estado IN ('EN_GARANTIA', 'RECHAZADO', 'LIBERADO')),
+    motivo_rechazo VARCHAR(200),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    liberado_en TIMESTAMPTZ
 );
+
+COMMENT ON TABLE pagos_pedido IS 'Pagos en línea simulados. EN_GARANTIA: PRISMA retiene el dinero hasta que la entrega se confirma con PIN (LIBERADO).';
+
+CREATE INDEX idx_pagos_pedido_pedido ON pagos_pedido (pedido_id);
+CREATE INDEX idx_pagos_pedido_proveedor ON pagos_pedido (proveedor_id);
 
 -- ==============================================================================
 -- FIN DEL ESQUEMA DDL PRISMA

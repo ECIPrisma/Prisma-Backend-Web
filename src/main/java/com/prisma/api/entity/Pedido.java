@@ -92,7 +92,30 @@ public class Pedido {
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"pedido"})
     private List<ItemPedido> items = new ArrayList<>();
 
+    // N-08: estado del pago en línea (simulado). No son columnas: se completan desde pagos_pedido
+    // para no alterar la tabla pedidos ni sus restricciones CHECK existentes.
+    @Transient
+    private String estadoPago;
+    @Transient
+    private String medioPagoEnLinea;
+    @Transient
+    private String detallePago;
+    @Transient
+    private String referenciaPago;
+
     public Pedido() {}
+
+    public String getEstadoPago() { return estadoPago; }
+    public void setEstadoPago(String estadoPago) { this.estadoPago = estadoPago; }
+
+    public String getMedioPagoEnLinea() { return medioPagoEnLinea; }
+    public void setMedioPagoEnLinea(String medioPagoEnLinea) { this.medioPagoEnLinea = medioPagoEnLinea; }
+
+    public String getDetallePago() { return detallePago; }
+    public void setDetallePago(String detallePago) { this.detallePago = detallePago; }
+
+    public String getReferenciaPago() { return referenciaPago; }
+    public void setReferenciaPago(String referenciaPago) { this.referenciaPago = referenciaPago; }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
