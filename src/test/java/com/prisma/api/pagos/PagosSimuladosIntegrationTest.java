@@ -7,7 +7,10 @@ import com.prisma.api.entity.Pedido;
 import com.prisma.api.entity.Proveedor;
 import com.prisma.api.enums.EstadoPagoPedido;
 import com.prisma.api.enums.MedioPagoEnLinea;
+import com.prisma.api.repository.AuditLogRepository;
 import com.prisma.api.repository.PagoPedidoRepository;
+import com.prisma.api.service.RegistroSeguridadService;
+import com.prisma.api.service.WebhookPagosService;
 import com.prisma.api.repository.PedidoRepository;
 import com.prisma.api.repository.ProveedorRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +50,7 @@ class PagosSimuladosIntegrationTest {
     @Autowired private PedidoRepository pedidoRepository;
     @Autowired private FirmaEventosWompi firma;
     @Autowired private PagoPedidoRepository pagoRepository;
+    @Autowired private AuditLogRepository auditLogRepository;
     @Autowired private ObjectMapper objectMapper;
 
     private String tokenTendero;
@@ -208,20 +212,43 @@ class PagosSimuladosIntegrationTest {
         transaccion.put("reference", referencia);
         transaccion.put("status", status);
         transaccion.put("amount_in_cents", centavos);
-        Map<String, Object> data = Map.of("transaction", transaccion);
-        long ts = 1_700_000_000L;
         Map<String, Object> evento = new LinkedHashMap<>();
         evento.put("event", "transaction.updated");
-        evento.put("data", data);
-        evento.put("timestamp", ts);
-        evento.put("signature", Map.of("properties", PasarelaPagosSimulada.PROPIEDADES_FIRMADAS,
-                "checksum", firma.calcularChecksum(data, PasarelaPagosSimulada.PROPIEDADES_FIRMADAS, ts)));
+        evento.put("data", Map.of("transaction", transaccion));
+        evento.put("timestamp", java.time.Instant.now().getEpochSecond());
         return evento;
     }
 
+    /** Envía el evento firmado con HMAC-SHA256 en el encabezado, como lo hace la pasarela. */
     private ResultActions webhook(Map<String, Object> evento) throws Exception {
-        return mockMvc.perform(post("/api/v1/pagos/webhooks/wompi")
-                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(evento)));
+        byte[] cuerpo = objectMapper.writeValueAsBytes(evento);
+        return webhookConFirma(cuerpo, firma.firmar(cuerpo));
+    }
+
+    private ResultActions webhookConFirma(byte[] cuerpo, String encabezado) throws Exception {
+        var peticion = post("/api/v1/pagos/webhooks/wompi").contentType(MediaType.APPLICATION_JSON).content(cuerpo);
+        if (encabezado != null) {
+            peticion.header(FirmaEventosWompi.ENCABEZADO, encabezado);
+        }
+        return mockMvc.perform(peticion);
+    }
+
+    private PagoPedido crearPagoPendiente(Long pedidoId, String referencia, String transaccionId) {
+        PagoPedido pendiente = new PagoPedido();
+        pendiente.setPedidoId(pedidoId);
+        pendiente.setNumeroPedido("PED-PENDIENTE");
+        pendiente.setProveedorId(femsa.getId());
+        pendiente.setTenderoId(1L);
+        pendiente.setReferencia(referencia);
+        pendiente.setTransaccionId(transaccionId);
+        pendiente.setPasarela(PasarelaPagosSimulada.NOMBRE);
+        pendiente.setMedio(MedioPagoEnLinea.PSE);
+        pendiente.setDetalleMedio("PSE • Bancolombia");
+        pendiente.setMonto(new java.math.BigDecimal("125000.00"));
+        pendiente.setComisionPrisma(new java.math.BigDecimal("4375.00"));
+        pendiente.setMontoProveedor(new java.math.BigDecimal("120625.00"));
+        pendiente.setEstado(EstadoPagoPedido.PENDIENTE);
+        return pagoRepository.save(pendiente);
     }
 
     @Test
@@ -262,11 +289,52 @@ class PagosSimuladosIntegrationTest {
     }
 
     @Test
-    @DisplayName("HU-13 webhook: sin firma válida se rechaza con 401 (endpoint público, sin JWT)")
-    void webhookFirmaInvalida() throws Exception {
-        Map<String, Object> evento = eventoFirmado("SBX-1", "PRISMA-X", "APPROVED", 100);
-        evento.put("signature", Map.of("properties", PasarelaPagosSimulada.PROPIEDADES_FIRMADAS, "checksum", "abc123"));
-        webhook(evento).andExpect(status().isUnauthorized());
+    @DisplayName("HU-14 criterio 1: webhook con HMAC válido confirma el pago (200) y avisa al proveedor para despachar")
+    void webhookValidoConfirmaYNotifica() throws Exception {
+        Long pedidoId = crearPedido();
+        crearPagoPendiente(pedidoId, "PRISMA-HU14-OK", "SBX-HU14OK");
+
+        webhook(eventoFirmado("SBX-HU14OK", "PRISMA-HU14-OK", "APPROVED", 12_500_000L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.datos.resultado").value("PROCESADO"));
+
+        assertThat(pagoRepository.findByReferencia("PRISMA-HU14-OK").orElseThrow().getEstado())
+                .isEqualTo(EstadoPagoPedido.EN_GARANTIA);
+        mockMvc.perform(get("/api/v1/tiendas/mis-pedidos").header("Authorization", tokenTendero))
+                .andExpect(jsonPath("$.datos[?(@.id == " + pedidoId + ")].estadoPago").value(contains("EN_GARANTIA")));
+
+        String numeroPedido = pedidoRepository.findById(pedidoId).orElseThrow().getNumeroPedido();
+        mockMvc.perform(get("/api/v1/notificaciones/mis-notificaciones").header("Authorization", tokenFemsa))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.datos[?(@.tipo == 'PAGO_CONFIRMADO' && @.numeroPedido == '" + numeroPedido + "')]").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("HU-14 criterio 2: firma inválida, ausente o vencida → 401, log de seguridad y el pedido no cambia")
+    void webhookFirmaInvalidaRechazadaYAuditada() throws Exception {
+        Long pedidoId = crearPedido();
+        crearPagoPendiente(pedidoId, "PRISMA-HU14-FRAUDE", "SBX-HU14FR");
+        long antes = auditLogRepository.countByTipoEvento(RegistroSeguridadService.EVENTO_WEBHOOK_RECHAZADO);
+        byte[] cuerpo = objectMapper.writeValueAsBytes(eventoFirmado("SBX-HU14FR", "PRISMA-HU14-FRAUDE", "APPROVED", 12_500_000L));
+
+        // 1. Firma con un secreto que no es el de la pasarela (atacante)
+        String firmaAtacante = new FirmaEventosWompi("secreto_de_un_atacante").firmar(cuerpo);
+        webhookConFirma(cuerpo, firmaAtacante)
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.mensaje").value(WebhookPagosService.MENSAJE_FIRMA_INVALIDA));
+        // 2. Sin encabezado de firma
+        webhookConFirma(cuerpo, null).andExpect(status().isUnauthorized());
+        // 3. Firma válida de otro cuerpo (cuerpo manipulado: se cambió el estado o el monto)
+        byte[] otroCuerpo = objectMapper.writeValueAsBytes(eventoFirmado("SBX-HU14FR", "PRISMA-HU14-FRAUDE", "DECLINED", 12_500_000L));
+        webhookConFirma(cuerpo, firma.firmar(otroCuerpo)).andExpect(status().isUnauthorized());
+        // 4. Firma correcta pero vieja (reenvío de un webhook capturado)
+        long viejo = java.time.Instant.now().getEpochSecond() - FirmaEventosWompi.TOLERANCIA_SEGUNDOS - 60;
+        webhookConFirma(cuerpo, firma.firmar(cuerpo, viejo)).andExpect(status().isUnauthorized());
+
+        assertThat(auditLogRepository.countByTipoEvento(RegistroSeguridadService.EVENTO_WEBHOOK_RECHAZADO))
+                .isEqualTo(antes + 4);
+        assertThat(pagoRepository.findByReferencia("PRISMA-HU14-FRAUDE").orElseThrow().getEstado())
+                .isEqualTo(EstadoPagoPedido.PENDIENTE);
     }
 
     @Test
@@ -293,21 +361,7 @@ class PagosSimuladosIntegrationTest {
     @DisplayName("HU-13 webhook: un pago pendiente solo se confirma si el monto coincide")
     void webhookValidaMonto() throws Exception {
         Long pedidoId = crearPedido();
-        PagoPedido pendiente = new PagoPedido();
-        pendiente.setPedidoId(pedidoId);
-        pendiente.setNumeroPedido("PED-PENDIENTE");
-        pendiente.setProveedorId(femsa.getId());
-        pendiente.setTenderoId(1L);
-        pendiente.setReferencia("PRISMA-PENDIENTE-1");
-        pendiente.setTransaccionId("SBX-PENDIENTE1");
-        pendiente.setPasarela(PasarelaPagosSimulada.NOMBRE);
-        pendiente.setMedio(MedioPagoEnLinea.PSE);
-        pendiente.setDetalleMedio("PSE • Bancolombia");
-        pendiente.setMonto(new java.math.BigDecimal("125000.00"));
-        pendiente.setComisionPrisma(new java.math.BigDecimal("4375.00"));
-        pendiente.setMontoProveedor(new java.math.BigDecimal("120625.00"));
-        pendiente.setEstado(EstadoPagoPedido.PENDIENTE);
-        pagoRepository.save(pendiente);
+        crearPagoPendiente(pedidoId, "PRISMA-PENDIENTE-1", "SBX-PENDIENTE1");
 
         webhook(eventoFirmado("SBX-PENDIENTE1", "PRISMA-PENDIENTE-1", "APPROVED", 999))
                 .andExpect(status().isBadRequest());

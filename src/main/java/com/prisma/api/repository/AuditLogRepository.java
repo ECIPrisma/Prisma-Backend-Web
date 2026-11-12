@@ -11,6 +11,7 @@ import java.util.UUID;
 
 @Repository
 public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
+    long countByTipoEvento(String tipoEvento);
     Page<AuditLog> findAllByOrderByTimestampDesc(Pageable pageable);
     List<AuditLog> findByAgenteIdOrderByTimestampDesc(Long agenteId);
     List<AuditLog> findByRecursoAfectadoTipoAndRecursoAfectadoId(String recursoTipo, String recursoId);

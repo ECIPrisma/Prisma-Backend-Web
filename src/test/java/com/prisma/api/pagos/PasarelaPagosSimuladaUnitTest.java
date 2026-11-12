@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PasarelaPagosSimuladaUnitTest {
 
-    private final PasarelaPagosSimulada pasarela = new PasarelaPagosSimulada(new FirmaEventosWompi("secreto_de_prueba"));
+    private final PasarelaPagosSimulada pasarela = new PasarelaPagosSimulada(new FirmaEventosWompi("secreto_de_prueba"), new com.fasterxml.jackson.databind.ObjectMapper());
 
     private static PagarPedidoRequest tarjeta(String numero, String vencimiento) {
         PagarPedidoRequest r = new PagarPedidoRequest();

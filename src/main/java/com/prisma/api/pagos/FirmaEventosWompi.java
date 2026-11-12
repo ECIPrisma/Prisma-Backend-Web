@@ -3,68 +3,102 @@ package com.prisma.api.pagos;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.HexFormat;
-import java.util.List;
-import java.util.Map;
 
 /**
- * HU-13 – Firma de los eventos (webhooks) con el mismo esquema que usa Wompi:
- * checksum = SHA-256( valores de signature.properties concatenados + timestamp + secreto de eventos ).
+ * HU-14 – Firma criptográfica HMAC-SHA256 del encabezado de los webhooks de pago.
  *
- * <p>Como la pasarela es SIMULADA, el secreto es un valor de pruebas configurable (WOMPI_EVENTS_SECRET).</p>
+ * <p>Encabezado: {@code X-Wompi-Signature: t=<epoch segundos>,v1=<hex HMAC-SHA256>}, donde el HMAC se calcula con el
+ * secreto de eventos sobre {@code "<t>." + cuerpo crudo}. Se valida ANTES de leer el contenido del cuerpo.</p>
+ *
+ * <ul>
+ *   <li>Comparación en tiempo constante (evita ataques de temporización).</li>
+ *   <li>Tolerancia de {@value #TOLERANCIA_SEGUNDOS} s sobre el timestamp (evita reenviar un webhook capturado).</li>
+ * </ul>
+ * Como la pasarela es SIMULADA, el secreto es un valor de pruebas configurable (WOMPI_EVENTS_SECRET).
  */
 @Component
 public class FirmaEventosWompi {
 
-    private final String secretoEventos;
+    public static final String ENCABEZADO = "X-Wompi-Signature";
+    public static final long TOLERANCIA_SEGUNDOS = 300;
+    private static final String ALGORITMO = "HmacSHA256";
 
-    public FirmaEventosWompi(@Value("${prisma.pagos.wompi.events-secret:test_events_prisma_simulado}") String secretoEventos) {
-        this.secretoEventos = secretoEventos;
+    public enum Validacion {
+        VALIDA("firma válida"),
+        AUSENTE("no se envió el encabezado " + ENCABEZADO),
+        MALFORMADA("el encabezado de firma no tiene el formato t=...,v1=..."),
+        EXPIRADA("el timestamp de la firma está fuera de la ventana permitida"),
+        NO_COINCIDE("la firma HMAC-SHA256 no coincide con la esperada");
+
+        private final String descripcion;
+        Validacion(String descripcion) { this.descripcion = descripcion; }
+        public String descripcion() { return descripcion; }
     }
 
-    /** Calcula el checksum del evento a partir de sus propiedades firmadas y el timestamp. */
-    public String calcularChecksum(Map<String, Object> data, List<String> propiedades, long timestamp) {
-        StringBuilder cadena = new StringBuilder();
-        for (String propiedad : propiedades) {
-            Object valor = resolver(data, propiedad);
-            cadena.append(valor == null ? "" : valor.toString());
+    private final byte[] secreto;
+
+    public FirmaEventosWompi(@Value("${prisma.pagos.wompi.events-secret:test_events_prisma_simulado}") String secreto) {
+        this.secreto = secreto.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** Genera el valor del encabezado para un cuerpo, como lo haría la pasarela al enviar el webhook. */
+    public String firmar(byte[] cuerpo, long timestamp) {
+        return "t=" + timestamp + ",v1=" + hmacHex(timestamp, cuerpo);
+    }
+
+    public String firmar(byte[] cuerpo) {
+        return firmar(cuerpo, Instant.now().getEpochSecond());
+    }
+
+    public Validacion validar(String encabezado, byte[] cuerpo) {
+        return validar(encabezado, cuerpo, Instant.now().getEpochSecond());
+    }
+
+    public Validacion validar(String encabezado, byte[] cuerpo, long ahora) {
+        if (encabezado == null || encabezado.isBlank()) {
+            return Validacion.AUSENTE;
         }
-        cadena.append(timestamp).append(secretoEventos);
-        return sha256(cadena.toString());
-    }
-
-    /** Valida el checksum recibido comparándolo en tiempo constante. */
-    public boolean esValido(Map<String, Object> data, List<String> propiedades, long timestamp, String checksum) {
-        if (checksum == null || propiedades == null || propiedades.isEmpty()) {
-            return false;
-        }
-        String esperado = calcularChecksum(data, propiedades, timestamp);
-        return MessageDigest.isEqual(esperado.getBytes(StandardCharsets.UTF_8),
-                checksum.toLowerCase().getBytes(StandardCharsets.UTF_8));
-    }
-
-    /** Resuelve una ruta tipo "transaction.status" dentro de data. */
-    @SuppressWarnings("unchecked")
-    static Object resolver(Map<String, Object> data, String ruta) {
-        Object actual = data;
-        for (String parte : ruta.split("\\.")) {
-            if (!(actual instanceof Map)) {
-                return null;
+        Long timestamp = null;
+        String firma = null;
+        for (String parte : encabezado.split(",")) {
+            String[] kv = parte.trim().split("=", 2);
+            if (kv.length != 2) continue;
+            if ("t".equals(kv[0])) {
+                try {
+                    timestamp = Long.parseLong(kv[1].trim());
+                } catch (NumberFormatException ex) {
+                    return Validacion.MALFORMADA;
+                }
+            } else if ("v1".equals(kv[0])) {
+                firma = kv[1].trim().toLowerCase();
             }
-            actual = ((Map<String, Object>) actual).get(parte);
         }
-        return actual;
+        if (timestamp == null || firma == null || firma.isEmpty()) {
+            return Validacion.MALFORMADA;
+        }
+        if (Math.abs(ahora - timestamp) > TOLERANCIA_SEGUNDOS) {
+            return Validacion.EXPIRADA;
+        }
+        byte[] esperada = hmacHex(timestamp, cuerpo == null ? new byte[0] : cuerpo).getBytes(StandardCharsets.US_ASCII);
+        return MessageDigest.isEqual(esperada, firma.getBytes(StandardCharsets.US_ASCII))
+                ? Validacion.VALIDA : Validacion.NO_COINCIDE;
     }
 
-    private static String sha256(String texto) {
+    private String hmacHex(long timestamp, byte[] cuerpo) {
         try {
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(texto.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException("SHA-256 no disponible", ex);
+            Mac mac = Mac.getInstance(ALGORITMO);
+            mac.init(new SecretKeySpec(secreto, ALGORITMO));
+            mac.update((timestamp + ".").getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(mac.doFinal(cuerpo));
+        } catch (GeneralSecurityException ex) {
+            throw new IllegalStateException("HMAC-SHA256 no disponible", ex);
         }
     }
 }

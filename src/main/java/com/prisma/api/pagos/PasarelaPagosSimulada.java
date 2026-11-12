@@ -1,5 +1,7 @@
 package com.prisma.api.pagos;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.prisma.api.dto.PagarPedidoRequest;
 import com.prisma.api.enums.MedioPagoEnLinea;
 import com.prisma.api.exception.ApiException;
@@ -13,7 +15,6 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.YearMonth;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -44,23 +45,35 @@ public class PasarelaPagosSimulada {
     private static final String ALFABETO = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final DateTimeFormatter VENCIMIENTO = DateTimeFormatter.ofPattern("MM/yy");
 
-    /** Propiedades que firma el evento, en el mismo orden que usa Wompi. */
-    public static final List<String> PROPIEDADES_FIRMADAS =
-            List.of("transaction.id", "transaction.status", "transaction.amount_in_cents");
-
     private final FirmaEventosWompi firma;
+    private final ObjectMapper objectMapper;
 
-    public PasarelaPagosSimulada(FirmaEventosWompi firma) {
+    public PasarelaPagosSimulada(FirmaEventosWompi firma, ObjectMapper objectMapper) {
         this.firma = firma;
+        this.objectMapper = objectMapper;
     }
 
     /** Resultado de la transacción simulada. */
     public record Resultado(boolean aprobado, String transaccionId, String detalleMedio, String motivoRechazo) {}
 
+    /** HU-14 – Webhook tal como viaja por HTTP: cuerpo crudo + encabezado X-Wompi-Signature. */
+    public record NotificacionWebhook(byte[] cuerpo, String firma) {}
+
     /**
-     * HU-13 – Construye el webhook "transaction.updated" que Wompi enviaría al terminar la transacción,
-     * firmado con el checksum SHA-256 (properties + timestamp + secreto de eventos).
+     * HU-14 – Notificación que la pasarela envía al terminar la transacción: el evento serializado y su firma
+     * HMAC-SHA256 en el encabezado (calculada sobre el cuerpo exacto).
      */
+    public NotificacionWebhook notificarTransaccion(Resultado resultado, String referencia, BigDecimal monto,
+                                                    MedioPagoEnLinea medio) {
+        try {
+            byte[] cuerpo = objectMapper.writeValueAsBytes(eventoTransaccion(resultado, referencia, monto, medio));
+            return new NotificacionWebhook(cuerpo, firma.firmar(cuerpo));
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("No se pudo serializar el evento de la pasarela", ex);
+        }
+    }
+
+    /** Evento "transaction.updated" con el formato de Wompi (sin firma: la firma va en el encabezado). */
     public Map<String, Object> eventoTransaccion(Resultado resultado, String referencia, BigDecimal monto,
                                                  MedioPagoEnLinea medio) {
         Map<String, Object> transaccion = new LinkedHashMap<>();
@@ -76,15 +89,10 @@ public class PasarelaPagosSimulada {
         data.put("transaction", transaccion);
 
         long timestamp = Instant.now().getEpochSecond();
-        Map<String, Object> firmaEvento = new LinkedHashMap<>();
-        firmaEvento.put("properties", PROPIEDADES_FIRMADAS);
-        firmaEvento.put("checksum", firma.calcularChecksum(data, PROPIEDADES_FIRMADAS, timestamp));
-
         Map<String, Object> evento = new LinkedHashMap<>();
         evento.put("event", "transaction.updated");
         evento.put("data", data);
         evento.put("environment", "test");
-        evento.put("signature", firmaEvento);
         evento.put("timestamp", timestamp);
         evento.put("sent_at", Instant.ofEpochSecond(timestamp).toString());
         return evento;

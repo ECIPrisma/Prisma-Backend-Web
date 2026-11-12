@@ -14,8 +14,8 @@ import com.prisma.api.pagos.ReglasSplitPayment;
 import com.prisma.api.repository.PagoPedidoRepository;
 import com.prisma.api.repository.PedidoRepository;
 import com.prisma.api.security.UserPrincipal;
-import com.prisma.api.service.ConfirmacionPagoService;
 import com.prisma.api.service.PagoPedidoService;
+import com.prisma.api.service.WebhookPagosService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,14 +34,14 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
     private final PagoPedidoRepository pagoRepository;
     private final PedidoRepository pedidoRepository;
     private final PasarelaPagosSimulada pasarela;
-    private final ConfirmacionPagoService confirmacionPagoService;
+    private final WebhookPagosService webhookPagosService;
 
     public PagoPedidoServiceImpl(PagoPedidoRepository pagoRepository, PedidoRepository pedidoRepository,
-                                 PasarelaPagosSimulada pasarela, ConfirmacionPagoService confirmacionPagoService) {
+                                 PasarelaPagosSimulada pasarela, WebhookPagosService webhookPagosService) {
         this.pagoRepository = pagoRepository;
         this.pedidoRepository = pedidoRepository;
         this.pasarela = pasarela;
-        this.confirmacionPagoService = confirmacionPagoService;
+        this.webhookPagosService = webhookPagosService;
     }
 
     @Override
@@ -84,10 +84,11 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
         pago.setCreadoEn(OffsetDateTime.now());
         pago = pagoRepository.save(pago);
 
-        // La pasarela simulada notifica el resultado con un webhook firmado, igual que Wompi.
-        // Se procesa con el mismo servicio que atiende POST /api/v1/pagos/webhooks/wompi.
-        Map<String, Object> evento = pasarela.eventoTransaccion(resultado, pago.getReferencia(), pago.getMonto(), pago.getMedio());
-        confirmacionPagoService.procesarEvento(evento);
+        // La pasarela simulada notifica el resultado con un webhook firmado (HMAC-SHA256 en el encabezado).
+        // Pasa por la MISMA validación que POST /api/v1/pagos/webhooks/wompi (HU-14).
+        PasarelaPagosSimulada.NotificacionWebhook webhook =
+                pasarela.notificarTransaccion(resultado, pago.getReferencia(), pago.getMonto(), pago.getMedio());
+        webhookPagosService.recibir(webhook.cuerpo(), webhook.firma(), "pasarela-simulada", "PasarelaPagosSimulada");
 
         PagoPedido confirmado = pagoRepository.findById(pago.getId()).orElse(pago);
         return PagoPedidoResponse.de(confirmado);

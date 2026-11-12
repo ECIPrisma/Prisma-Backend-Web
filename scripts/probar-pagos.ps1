@@ -11,9 +11,10 @@ $ErrorActionPreference = "Stop"
 $script:ok = 0
 $script:fallos = 0
 
-function Llamar([string]$metodo, [string]$ruta, [string]$token, [string]$cuerpo) {
+function Llamar([string]$metodo, [string]$ruta, [string]$token, [string]$cuerpo, [hashtable]$encabezados = @{}) {
     $params = @{ UseBasicParsing = $true; Method = $metodo; Uri = "$Base$ruta"; ContentType = "application/json; charset=utf-8" }
-    if ($token) { $params.Headers = @{ Authorization = "Bearer $token" } }
+    $params.Headers = @{} + $encabezados
+    if ($token) { $params.Headers.Authorization = "Bearer $token" }
     if ($cuerpo) { $params.Body = [System.Text.Encoding]::UTF8.GetBytes($cuerpo) }
     try {
         $r = Invoke-WebRequest @params
@@ -129,10 +130,29 @@ $r = Llamar "POST" "/tiendas/pedidos/$($otro.id)/pago" $tendero '{"medio":"TARJE
 Verificar "CP-16 Tarjeta 4242... APRUEBA (segundo pedido $($otro.numeroPedido))" ($r.Json.datos.estado -eq "EN_GARANTIA") "estado $($r.Json.datos.estado)"
 
 # ------------------------------------------------------------------------------
-Write-Host "`n=== Webhook de la pasarela (HU-13) ===" -ForegroundColor Cyan
-$eventoFalso = '{"event":"transaction.updated","data":{"transaction":{"id":"SBX-FALSO","reference":"X","status":"APPROVED","amount_in_cents":100}},"signature":{"properties":["transaction.id","transaction.status","transaction.amount_in_cents"],"checksum":"firma-falsa"},"timestamp":1700000000}'
-$r = Llamar "POST" "/pagos/webhooks/wompi" $null $eventoFalso
-Verificar "CP-W1 Webhook con firma falsa se rechaza (401)" ($r.Status -eq 401) "HTTP $($r.Status)"
+Write-Host "`n=== Webhook de la pasarela: firma HMAC-SHA256 del encabezado (HU-14) ===" -ForegroundColor Cyan
+# Secreto de pruebas por defecto del backend (prisma.pagos.wompi.events-secret)
+$SecretoEventos = "test_events_prisma_simulado"
+function FirmarHmac([string]$cuerpo, [string]$secreto, [long]$t) {
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256 (,[System.Text.Encoding]::UTF8.GetBytes($secreto))
+    $hash = $hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes("$t.$cuerpo"))
+    return "t=$t,v1=" + (($hash | ForEach-Object { $_.ToString("x2") }) -join "")
+}
+$ahora = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$evento = '{"event":"transaction.updated","data":{"transaction":{"id":"SBX-SCRIPT","reference":"REFERENCIA-INEXISTENTE","status":"APPROVED","amount_in_cents":100}}}'
+
+$r = Llamar "POST" "/pagos/webhooks/wompi" $null $evento
+Verificar "CP-W1 Webhook sin encabezado de firma se rechaza (401)" ($r.Status -eq 401) "HTTP $($r.Status)"
+
+$r = Llamar "POST" "/pagos/webhooks/wompi" $null $evento @{ "X-Wompi-Signature" = (FirmarHmac $evento "secreto_de_un_atacante" $ahora) }
+Verificar "CP-W2 Webhook firmado con otro secreto se rechaza (401)" ($r.Status -eq 401) "HTTP $($r.Status)"
+
+$r = Llamar "POST" "/pagos/webhooks/wompi" $null $evento @{ "X-Wompi-Signature" = (FirmarHmac $evento $SecretoEventos ($ahora - 3600)) }
+Verificar "CP-W3 Webhook con firma vencida (reenvío) se rechaza (401)" ($r.Status -eq 401) "HTTP $($r.Status)"
+
+$r = Llamar "POST" "/pagos/webhooks/wompi" $null $evento @{ "X-Wompi-Signature" = (FirmarHmac $evento $SecretoEventos $ahora) }
+Verificar "CP-W4 Webhook con HMAC válido se acepta (200; referencia ajena -> IGNORADO)" ($r.Status -eq 200 -and $r.Json.datos.resultado -eq "IGNORADO") "HTTP $($r.Status) $($r.Json.datos.resultado)"
+Write-Host "          Los rechazos quedan en audit_logs (tipo WEBHOOK_PAGO_FIRMA_INVALIDA) y en el log 'SEGURIDAD' del backend" -ForegroundColor DarkGray
 
 # ------------------------------------------------------------------------------
 Write-Host "`n=== Cuenta de cobro del proveedor (HU-12) ===" -ForegroundColor Cyan

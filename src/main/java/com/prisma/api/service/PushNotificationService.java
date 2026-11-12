@@ -55,6 +55,24 @@ public class PushNotificationService {
         }
     }
 
+    /** HU-14: el pago en línea del pedido quedó confirmado (en garantía); el proveedor puede despachar. */
+    public void notificarPagoConfirmadoProveedor(Pedido pedido, java.math.BigDecimal monto) {
+        if (pedido == null || pedido.getProveedor() == null) {
+            return;
+        }
+        String titulo = "Pago confirmado: pedido #" + pedido.getNumeroPedido();
+        String tiendaNombre = pedido.getTienda() != null ? pedido.getTienda().getNombreTienda() : "La tienda";
+        String mensaje = tiendaNombre + " pagó en línea $" + monto + " COP. El pago está en garantía: ya puedes iniciar el despacho.";
+
+        List<Usuario> usuariosProveedor = usuarioRepository.findAll().stream()
+                .filter(u -> u.getProveedor() != null && u.getProveedor().getId().equals(pedido.getProveedor().getId()))
+                .toList();
+
+        for (Usuario u : usuariosProveedor) {
+            enviarPush(u, titulo, mensaje, "PAGO_CONFIRMADO", pedido.getId(), pedido.getNumeroPedido(), pedido.getEstado().name());
+        }
+    }
+
     public void notificarCambioEstadoTendero(Pedido pedido) {
         if (pedido == null || pedido.getTienda() == null || pedido.getTienda().getTendero() == null) {
             return;
