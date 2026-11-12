@@ -435,5 +435,34 @@ COMMENT ON TABLE refresh_tokens IS 'Refresh tokens opacos para renovar el JWT de
 CREATE INDEX idx_refresh_tokens_usuario_id ON refresh_tokens (usuario_id);
 
 -- ==============================================================================
+-- HU-12: Cuenta de cobro del proveedor en la pasarela de pagos (Mercado Pago, OAuth)
+-- ==============================================================================
+CREATE TABLE cuentas_cobro_proveedor (
+    id BIGSERIAL PRIMARY KEY,
+    proveedor_id BIGINT NOT NULL UNIQUE REFERENCES proveedores(id) ON DELETE CASCADE,
+    pasarela VARCHAR(30) NOT NULL DEFAULT 'MERCADO_PAGO',
+    cuenta_externa_id VARCHAR(40) NOT NULL,          -- user_id del vendedor en Mercado Pago
+    access_token_cifrado TEXT NOT NULL,              -- AES-256-GCM, nunca en texto plano
+    refresh_token_cifrado TEXT,
+    public_key VARCHAR(200),
+    scope VARCHAR(120),
+    modo_produccion BOOLEAN NOT NULL DEFAULT FALSE,
+    token_expira_en TIMESTAMPTZ,
+    vinculada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    actualizada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE solicitudes_vinculacion_pago (
+    id BIGSERIAL PRIMARY KEY,
+    state VARCHAR(64) NOT NULL UNIQUE,               -- anti-CSRF del flujo OAuth
+    proveedor_id BIGINT NOT NULL REFERENCES proveedores(id) ON DELETE CASCADE,
+    usuario_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    code_verifier VARCHAR(128) NOT NULL,             -- secreto PKCE
+    expira_en TIMESTAMPTZ NOT NULL,
+    usada BOOLEAN NOT NULL DEFAULT FALSE,
+    creada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+-- ==============================================================================
 -- FIN DEL ESQUEMA DDL PRISMA
 -- ==============================================================================
