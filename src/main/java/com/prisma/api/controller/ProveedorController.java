@@ -54,6 +54,9 @@ public class ProveedorController {
     @Autowired(required = false)
     private PushNotificationService pushNotificationService;
 
+    @Autowired(required = false)
+    private RastreoCamionRepository rastreoCamionRepository;
+
     public ProveedorController(
             ProductoRepository productoRepository,
             PedidoRepository pedidoRepository,
@@ -245,6 +248,10 @@ public class ProveedorController {
                 parada.put("ordenParada", ped.getOrdenParada());
                 parada.put("nombreTienda", ped.getTienda() != null ? ped.getTienda().getNombreTienda() : "Tienda");
                 parada.put("direccion", ped.getTienda() != null ? ped.getTienda().getDireccion() : "");
+                parada.put("barrio", ped.getTienda() != null ? ped.getTienda().getBarrio() : "");
+                parada.put("telefono", ped.getTienda() != null ? ped.getTienda().getTelefonoTienda() : "");
+                parada.put("latitud", ped.getTienda() != null ? ped.getTienda().getLatitud() : new BigDecimal("4.6097100"));
+                parada.put("longitud", ped.getTienda() != null ? ped.getTienda().getLongitud() : new BigDecimal("-74.0817500"));
                 parada.put("estado", ped.getEstado().name());
                 parada.put("totalAPagar", ped.getTotalAPagar());
                 parada.put("notas", ped.getNotasEntrega());
@@ -252,10 +259,69 @@ public class ProveedorController {
             }).toList();
             dto.put("paradas", paradas);
 
+            // Ubicación GPS en tiempo real del camión
+            Map<String, Object> ubicacion = new HashMap<>();
+            if (rastreoCamionRepository != null) {
+                rastreoCamionRepository.findTopByRutaIdOrderByTimestampDesc(r.getId()).ifPresent(rc -> {
+                    ubicacion.put("latitud", rc.getLatitud());
+                    ubicacion.put("longitud", rc.getLongitud());
+                    ubicacion.put("velocidadKmh", rc.getVelocidadKmh());
+                    ubicacion.put("rumboGrados", rc.getRumboGrados());
+                    ubicacion.put("timestamp", rc.getTimestamp());
+                });
+            }
+            if (ubicacion.isEmpty() && !paradas.isEmpty()) {
+                // Fallback dinámico a la primera parada
+                ubicacion.put("latitud", paradas.get(0).get("latitud"));
+                ubicacion.put("longitud", paradas.get(0).get("longitud"));
+                ubicacion.put("velocidadKmh", BigDecimal.ZERO);
+                ubicacion.put("timestamp", OffsetDateTime.now());
+            }
+            dto.put("ubicacionActual", ubicacion);
+
             return dto;
         }).toList();
 
         return ResponseEntity.ok(ApiResponse.exito("Progreso de rutas", resultado));
+    }
+
+    @PostMapping("/rutas/{rutaId}/simular-posicion")
+    @PreAuthorize("hasAnyAuthority('ROLE_PROVEEDOR_ADMIN', 'ROLE_PROVEEDOR', 'ROLE_ADMIN', 'ROLE_PLATFORM_ADMIN')")
+    @Transactional
+    @Operation(summary = "Actualizar posición GPS del camión (Modo Demostración / Sustentación)")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> simularPosicionCamion(
+            @PathVariable Long rutaId,
+            @RequestBody Map<String, Object> body) {
+        Ruta ruta = rutaRepository.findById(rutaId)
+                .orElseThrow(() -> new RuntimeException("Ruta no encontrada con ID: " + rutaId));
+
+        BigDecimal lat = body.get("latitud") != null ? new BigDecimal(body.get("latitud").toString()) : new BigDecimal("4.6097100");
+        BigDecimal lng = body.get("longitud") != null ? new BigDecimal(body.get("longitud").toString()) : new BigDecimal("-74.0817500");
+        BigDecimal vel = body.get("velocidadKmh") != null ? new BigDecimal(body.get("velocidadKmh").toString()) : new BigDecimal("35.5");
+        BigDecimal rumbo = body.get("rumboGrados") != null ? new BigDecimal(body.get("rumboGrados").toString()) : BigDecimal.ZERO;
+
+        RastreoCamion rc = new RastreoCamion();
+        rc.setRuta(ruta);
+        rc.setCamion(ruta.getCamion());
+        rc.setRepartidor(ruta.getRepartidor());
+        rc.setLatitud(lat);
+        rc.setLongitud(lng);
+        rc.setVelocidadKmh(vel);
+        rc.setRumboGrados(rumbo);
+        rc.setTimestamp(OffsetDateTime.now());
+
+        if (rastreoCamionRepository != null) {
+            rc = rastreoCamionRepository.save(rc);
+        }
+
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("rutaId", rutaId);
+        resp.put("latitud", rc.getLatitud());
+        resp.put("longitud", rc.getLongitud());
+        resp.put("velocidadKmh", rc.getVelocidadKmh());
+        resp.put("timestamp", rc.getTimestamp());
+
+        return ResponseEntity.ok(ApiResponse.exito("Coordenadas GPS actualizadas para simulación", resp));
     }
 
     @GetMapping("/pedidos/nuevos")
