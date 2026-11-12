@@ -769,6 +769,8 @@ public class ProveedorController {
             dto.put("direccion", t.getDireccion());
             dto.put("barrio", t.getBarrio());
             dto.put("ciudad", t.getCiudad());
+            dto.put("latitud", t.getLatitud());
+            dto.put("longitud", t.getLongitud());
             dto.put("telefono", t.getTelefonoTienda());
             dto.put("nombreTendero", t.getTendero() != null ? t.getTendero().getNombreCompleto() : "Tendero Asignado");
             dto.put("diaPreferidoEntrega", t.getDiaPreferidoEntrega() != null ? t.getDiaPreferidoEntrega() : "Lunes y Jueves");
