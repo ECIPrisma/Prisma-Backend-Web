@@ -465,10 +465,14 @@ CREATE TABLE pagos_pedido (
     monto NUMERIC(12, 2) NOT NULL CHECK (monto >= 0),
     comision_prisma NUMERIC(12, 2) NOT NULL CHECK (comision_prisma >= 0),
     monto_proveedor NUMERIC(12, 2) NOT NULL CHECK (monto_proveedor >= 0),
-    estado VARCHAR(15) NOT NULL CHECK (estado IN ('EN_GARANTIA', 'RECHAZADO', 'LIBERADO')),
+    porcentaje_comision NUMERIC(5, 2),               -- HU-13: 3.50 fijo
+    tarifa_pasarela NUMERIC(12, 2),                  -- HU-13: tarifa Wompi, independiente de la comisión
+    estado VARCHAR(15) NOT NULL CHECK (estado IN ('PENDIENTE', 'EN_GARANTIA', 'RECHAZADO', 'LIBERADO')),
     motivo_rechazo VARCHAR(200),
     creado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-    liberado_en TIMESTAMPTZ
+    confirmado_en TIMESTAMPTZ,                       -- HU-13: cuando llegó el webhook de la pasarela
+    liberado_en TIMESTAMPTZ,
+    CONSTRAINT chk_split_atomico CHECK (comision_prisma + monto_proveedor = monto)
 );
 
 COMMENT ON TABLE pagos_pedido IS 'Pagos en línea simulados. EN_GARANTIA: PRISMA retiene el dinero hasta que la entrega se confirma con PIN (LIBERADO).';

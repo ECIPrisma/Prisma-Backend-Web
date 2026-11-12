@@ -7,8 +7,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.time.YearMonth;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 
@@ -38,8 +44,55 @@ public class PasarelaPagosSimulada {
     private static final String ALFABETO = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final DateTimeFormatter VENCIMIENTO = DateTimeFormatter.ofPattern("MM/yy");
 
+    /** Propiedades que firma el evento, en el mismo orden que usa Wompi. */
+    public static final List<String> PROPIEDADES_FIRMADAS =
+            List.of("transaction.id", "transaction.status", "transaction.amount_in_cents");
+
+    private final FirmaEventosWompi firma;
+
+    public PasarelaPagosSimulada(FirmaEventosWompi firma) {
+        this.firma = firma;
+    }
+
     /** Resultado de la transacción simulada. */
     public record Resultado(boolean aprobado, String transaccionId, String detalleMedio, String motivoRechazo) {}
+
+    /**
+     * HU-13 – Construye el webhook "transaction.updated" que Wompi enviaría al terminar la transacción,
+     * firmado con el checksum SHA-256 (properties + timestamp + secreto de eventos).
+     */
+    public Map<String, Object> eventoTransaccion(Resultado resultado, String referencia, BigDecimal monto,
+                                                 MedioPagoEnLinea medio) {
+        Map<String, Object> transaccion = new LinkedHashMap<>();
+        transaccion.put("id", resultado.transaccionId());
+        transaccion.put("reference", referencia);
+        transaccion.put("status", resultado.aprobado() ? "APPROVED" : "DECLINED");
+        transaccion.put("amount_in_cents", enCentavos(monto));
+        transaccion.put("currency", "COP");
+        transaccion.put("payment_method_type", medio == MedioPagoEnLinea.TARJETA ? "CARD" : medio.name());
+        transaccion.put("status_message", resultado.motivoRechazo());
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("transaction", transaccion);
+
+        long timestamp = Instant.now().getEpochSecond();
+        Map<String, Object> firmaEvento = new LinkedHashMap<>();
+        firmaEvento.put("properties", PROPIEDADES_FIRMADAS);
+        firmaEvento.put("checksum", firma.calcularChecksum(data, PROPIEDADES_FIRMADAS, timestamp));
+
+        Map<String, Object> evento = new LinkedHashMap<>();
+        evento.put("event", "transaction.updated");
+        evento.put("data", data);
+        evento.put("environment", "test");
+        evento.put("signature", firmaEvento);
+        evento.put("timestamp", timestamp);
+        evento.put("sent_at", Instant.ofEpochSecond(timestamp).toString());
+        return evento;
+    }
+
+    public static long enCentavos(BigDecimal monto) {
+        return monto.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
+    }
 
     public Resultado procesar(MedioPagoEnLinea medio, PagarPedidoRequest datos) {
         if (medio == null) {

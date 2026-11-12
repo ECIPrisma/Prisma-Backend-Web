@@ -7,6 +7,7 @@ import com.prisma.api.entity.CuentaCobroProveedor;
 import com.prisma.api.entity.Proveedor;
 import com.prisma.api.exception.ApiException;
 import com.prisma.api.pagos.PasarelaPagosSimulada;
+import com.prisma.api.pagos.ReglasSplitPayment;
 import com.prisma.api.repository.CuentaCobroProveedorRepository;
 import com.prisma.api.repository.ProveedorRepository;
 import com.prisma.api.security.UserPrincipal;
@@ -19,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.Set;
 
@@ -35,7 +35,6 @@ public class CuentaCobroServiceImpl implements CuentaCobroService {
     private static final Logger logger = LoggerFactory.getLogger(CuentaCobroServiceImpl.class);
     public static final String SUFIJO_CUENTA_RECHAZADA = "0000";
     private static final Set<String> TIPOS_CUENTA = Set.of("AHORROS", "CORRIENTE");
-    private static final BigDecimal CIEN = new BigDecimal("100");
 
     private final CuentaCobroProveedorRepository cuentaRepository;
     private final ProveedorRepository proveedorRepository;
@@ -112,18 +111,18 @@ public class CuentaCobroServiceImpl implements CuentaCobroService {
     @Override
     @Transactional(readOnly = true)
     public DivisionPago calcularDivision(Long proveedorId, BigDecimal total) {
-        Proveedor proveedor = proveedorRepository.findById(proveedorId)
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Proveedor no encontrado"));
-        BigDecimal comisionPorcentaje = comisionDe(proveedor);
-        BigDecimal comision = total.multiply(comisionPorcentaje).divide(CIEN, 2, RoundingMode.HALF_UP);
-        return new DivisionPago(total, comision, total.subtract(comision), CIEN.subtract(comisionPorcentaje));
+        if (!proveedorRepository.existsById(proveedorId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Proveedor no encontrado");
+        }
+        // HU-13: comisión de la plataforma fija en 3.5% para todos los proveedores
+        return ReglasSplitPayment.dividir(total);
     }
 
     // ---------------------------------------------------------------------------------------------
 
     private CuentaCobroResponse construirEstado(Proveedor proveedor, CuentaCobroProveedor cuenta) {
-        BigDecimal comision = comisionDe(proveedor);
-        return CuentaCobroResponse.de(cuenta, PasarelaPagosSimulada.NOMBRE, comision, CIEN.subtract(comision));
+        return CuentaCobroResponse.de(cuenta, PasarelaPagosSimulada.NOMBRE,
+                ReglasSplitPayment.PORCENTAJE_COMISION, ReglasSplitPayment.PORCENTAJE_PROVEEDOR);
     }
 
     private Proveedor proveedorDe(UserPrincipal usuario) {
@@ -132,9 +131,5 @@ public class CuentaCobroServiceImpl implements CuentaCobroService {
         }
         return proveedorRepository.findById(usuario.getProveedorId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Proveedor no encontrado"));
-    }
-
-    private static BigDecimal comisionDe(Proveedor proveedor) {
-        return proveedor.getComisionPorcentaje() != null ? proveedor.getComisionPorcentaje() : new BigDecimal("2.50");
     }
 }

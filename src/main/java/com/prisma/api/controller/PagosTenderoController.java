@@ -22,6 +22,10 @@ import org.springframework.web.bind.annotation.*;
 @Tag(name = "Pagos del Tendero", description = "Pago en línea de pedidos con pasarela simulada (Nequi, PSE, tarjeta)")
 public class PagosTenderoController {
 
+    public static final String MENSAJE_PAGO_APROBADO =
+            "Pago aprobado. El dinero queda en garantía hasta que confirmes la entrega con tu PIN.";
+    public static final String MENSAJE_PAGO_RECHAZADO = "El pago no pudo ser procesado, intenta con otro medio";
+
     private final PagoPedidoService pagoPedidoService;
 
     public PagosTenderoController(PagoPedidoService pagoPedidoService) {
@@ -39,9 +43,8 @@ public class PagosTenderoController {
             @RequestBody PagarPedidoRequest datos,
             @AuthenticationPrincipal UserPrincipal currentUser) {
         PagoPedidoResponse pago = pagoPedidoService.pagar(pedidoId, datos, currentUser);
-        String mensaje = pago.aprobado()
-                ? "Pago aprobado. El dinero queda en garantía hasta que confirmes la entrega con tu PIN."
-                : "Pago rechazado: " + pago.motivoRechazo();
+        // HU-13 criterio 2: el pedido sigue "Confirmado" sin garantía y se muestra el mensaje exacto
+        String mensaje = pago.aprobado() ? MENSAJE_PAGO_APROBADO : MENSAJE_PAGO_RECHAZADO;
         return ResponseEntity.ok(ApiResponse.exito(mensaje, pago));
     }
 

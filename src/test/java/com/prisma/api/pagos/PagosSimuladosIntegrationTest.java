@@ -1,8 +1,13 @@
 package com.prisma.api.pagos;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
+import com.prisma.api.entity.PagoPedido;
 import com.prisma.api.entity.Pedido;
 import com.prisma.api.entity.Proveedor;
+import com.prisma.api.enums.EstadoPagoPedido;
+import com.prisma.api.enums.MedioPagoEnLinea;
+import com.prisma.api.repository.PagoPedidoRepository;
 import com.prisma.api.repository.PedidoRepository;
 import com.prisma.api.repository.ProveedorRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +20,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -31,10 +40,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PagosSimuladosIntegrationTest {
 
     private static final String MENSAJE_FALLA = "No se pudo vincular tu cuenta de cobro, intenta nuevamente";
+    private static final String MENSAJE_RECHAZO = "El pago no pudo ser procesado, intenta con otro medio";
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ProveedorRepository proveedorRepository;
     @Autowired private PedidoRepository pedidoRepository;
+    @Autowired private FirmaEventosWompi firma;
+    @Autowired private PagoPedidoRepository pagoRepository;
+    @Autowired private ObjectMapper objectMapper;
 
     private String tokenTendero;
     private String tokenFemsa;
@@ -110,7 +123,7 @@ class PagosSimuladosIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.datos.aprobado").value(false))
                 .andExpect(jsonPath("$.datos.estado").value("RECHAZADO"))
-                .andExpect(jsonPath("$.mensaje").value(startsWith("Pago rechazado")));
+                .andExpect(jsonPath("$.mensaje").value(MENSAJE_RECHAZO));
         pagar(pedidoId, "{\"medio\":\"PSE\",\"banco\":\"Banco que rechaza\",\"tipoPersona\":\"NATURAL\",\"documento\":\"1020304050\"}")
                 .andExpect(jsonPath("$.datos.estado").value("RECHAZADO"));
         pagar(pedidoId, "{\"medio\":\"TARJETA\",\"numeroTarjeta\":\"4111111111111111\",\"titular\":\"MARTA\",\"vencimiento\":\"12/30\"}")
@@ -187,6 +200,126 @@ class PagosSimuladosIntegrationTest {
         }
     }
 
+    // ------------------------------------------------------------- HU-13 Split payment y webhook
+
+    private Map<String, Object> eventoFirmado(String transaccionId, String referencia, String status, long centavos) {
+        Map<String, Object> transaccion = new LinkedHashMap<>();
+        transaccion.put("id", transaccionId);
+        transaccion.put("reference", referencia);
+        transaccion.put("status", status);
+        transaccion.put("amount_in_cents", centavos);
+        Map<String, Object> data = Map.of("transaction", transaccion);
+        long ts = 1_700_000_000L;
+        Map<String, Object> evento = new LinkedHashMap<>();
+        evento.put("event", "transaction.updated");
+        evento.put("data", data);
+        evento.put("timestamp", ts);
+        evento.put("signature", Map.of("properties", PasarelaPagosSimulada.PROPIEDADES_FIRMADAS,
+                "checksum", firma.calcularChecksum(data, PasarelaPagosSimulada.PROPIEDADES_FIRMADAS, ts)));
+        return evento;
+    }
+
+    private ResultActions webhook(Map<String, Object> evento) throws Exception {
+        return mockMvc.perform(post("/api/v1/pagos/webhooks/wompi")
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(evento)));
+    }
+
+    @Test
+    @DisplayName("HU-13 criterio 1: un solo pago se divide 3.5% PRISMA / 96.5% proveedor y lo confirma el webhook")
+    void splitPaymentConfirmadoPorWebhook() throws Exception {
+        Long pedidoId = crearPedido(); // pedido sin ítems: total de 125.000
+
+        pagar(pedidoId, "{\"medio\":\"NEQUI\",\"celular\":\"3991111111\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mensaje").value(startsWith("Pago aprobado")))
+                .andExpect(jsonPath("$.datos.monto").value(125000.0))
+                .andExpect(jsonPath("$.datos.porcentajeComision").value(3.5))
+                .andExpect(jsonPath("$.datos.comisionPrisma").value(4375.0))
+                .andExpect(jsonPath("$.datos.montoProveedor").value(120625.0))
+                .andExpect(jsonPath("$.datos.tarifaPasarela").value(2237.5))
+                .andExpect(jsonPath("$.datos.confirmadoPorWebhook").value(true))
+                .andExpect(jsonPath("$.datos.estado").value("EN_GARANTIA"));
+
+        assertThat(pedidoRepository.findById(pedidoId).orElseThrow().getComisionPrismaValor()).isEqualByComparingTo("4375.00");
+    }
+
+    @Test
+    @DisplayName("HU-13 criterio 2: rechazo de la entidad deja el pedido Confirmado sin garantía y con el mensaje exacto")
+    void rechazoMantienePedidoConfirmado() throws Exception {
+        Long pedidoId = crearPedido();
+
+        pagar(pedidoId, "{\"medio\":\"TARJETA\",\"numeroTarjeta\":\"4111111111111111\",\"titular\":\"MARTA\",\"vencimiento\":\"12/30\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mensaje").value(MENSAJE_RECHAZO))
+                .andExpect(jsonPath("$.datos.aprobado").value(false))
+                .andExpect(jsonPath("$.datos.confirmadoPorWebhook").value(true));
+
+        mockMvc.perform(get("/api/v1/tiendas/mis-pedidos").header("Authorization", tokenTendero))
+                .andExpect(jsonPath("$.datos[?(@.id == " + pedidoId + ")].estado").value(contains("CREADO")))
+                .andExpect(jsonPath("$.datos[?(@.id == " + pedidoId + ")].estadoPago").value(contains("RECHAZADO")));
+        mockMvc.perform(get("/api/v1/proveedores/pagos/recaudos").header("Authorization", tokenFemsa))
+                .andExpect(jsonPath("$.datos.pagos[?(@.pedidoId == " + pedidoId + ")]").isEmpty());
+    }
+
+    @Test
+    @DisplayName("HU-13 webhook: sin firma válida se rechaza con 401 (endpoint público, sin JWT)")
+    void webhookFirmaInvalida() throws Exception {
+        Map<String, Object> evento = eventoFirmado("SBX-1", "PRISMA-X", "APPROVED", 100);
+        evento.put("signature", Map.of("properties", PasarelaPagosSimulada.PROPIEDADES_FIRMADAS, "checksum", "abc123"));
+        webhook(evento).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("HU-13 webhook: es idempotente y no cambia un pago que ya tiene resultado final")
+    void webhookIdempotente() throws Exception {
+        Long pedidoId = crearPedido();
+        String body = pagar(pedidoId, "{\"medio\":\"NEQUI\",\"celular\":\"3991111111\"}")
+                .andReturn().getResponse().getContentAsString();
+        String transaccion = JsonPath.read(body, "$.datos.transaccionId");
+        String referencia = JsonPath.read(body, "$.datos.referencia");
+
+        webhook(eventoFirmado(transaccion, referencia, "DECLINED", 12_500_000L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.datos.resultado").value("YA_PROCESADO"));
+        mockMvc.perform(get("/api/v1/tiendas/pedidos/" + pedidoId + "/pago").header("Authorization", tokenTendero))
+                .andExpect(jsonPath("$.datos.estado").value("EN_GARANTIA"));
+
+        webhook(eventoFirmado("SBX-OTRO", "REFERENCIA-AJENA", "APPROVED", 100))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.datos.resultado").value("IGNORADO"));
+    }
+
+    @Test
+    @DisplayName("HU-13 webhook: un pago pendiente solo se confirma si el monto coincide")
+    void webhookValidaMonto() throws Exception {
+        Long pedidoId = crearPedido();
+        PagoPedido pendiente = new PagoPedido();
+        pendiente.setPedidoId(pedidoId);
+        pendiente.setNumeroPedido("PED-PENDIENTE");
+        pendiente.setProveedorId(femsa.getId());
+        pendiente.setTenderoId(1L);
+        pendiente.setReferencia("PRISMA-PENDIENTE-1");
+        pendiente.setTransaccionId("SBX-PENDIENTE1");
+        pendiente.setPasarela(PasarelaPagosSimulada.NOMBRE);
+        pendiente.setMedio(MedioPagoEnLinea.PSE);
+        pendiente.setDetalleMedio("PSE • Bancolombia");
+        pendiente.setMonto(new java.math.BigDecimal("125000.00"));
+        pendiente.setComisionPrisma(new java.math.BigDecimal("4375.00"));
+        pendiente.setMontoProveedor(new java.math.BigDecimal("120625.00"));
+        pendiente.setEstado(EstadoPagoPedido.PENDIENTE);
+        pagoRepository.save(pendiente);
+
+        webhook(eventoFirmado("SBX-PENDIENTE1", "PRISMA-PENDIENTE-1", "APPROVED", 999))
+                .andExpect(status().isBadRequest());
+        webhook(eventoFirmado("SBX-PENDIENTE1", "PRISMA-PENDIENTE-1", "APPROVED", 12_500_000L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.datos.resultado").value("PROCESADO"));
+
+        PagoPedido confirmado = pagoRepository.findByReferencia("PRISMA-PENDIENTE-1").orElseThrow();
+        assertThat(confirmado.getEstado()).isEqualTo(EstadoPagoPedido.EN_GARANTIA);
+        assertThat(confirmado.getConfirmadoEn()).isNotNull();
+    }
+
     // ------------------------------------------------------------- Cuenta de cobro del proveedor (HU-12)
 
     @Test
@@ -197,7 +330,8 @@ class PagosSimuladosIntegrationTest {
                 .andExpect(jsonPath("$.datos.disponible").value(true))
                 .andExpect(jsonPath("$.datos.simulada").value(true))
                 .andExpect(jsonPath("$.datos.vinculada").value(false))
-                .andExpect(jsonPath("$.datos.porcentajeProveedor").value(97.50));
+                .andExpect(jsonPath("$.datos.porcentajeProveedor").value(96.50))
+                .andExpect(jsonPath("$.datos.comisionPrismaPorcentaje").value(3.50));
     }
 
     @Test

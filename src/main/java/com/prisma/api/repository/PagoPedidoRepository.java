@@ -12,6 +12,7 @@ import java.util.Optional;
 @Repository
 public interface PagoPedidoRepository extends JpaRepository<PagoPedido, Long> {
     Optional<PagoPedido> findFirstByPedidoIdOrderByCreadoEnDescIdDesc(Long pedidoId);
+    Optional<PagoPedido> findByReferencia(String referencia);
     Optional<PagoPedido> findFirstByPedidoIdAndEstadoIn(Long pedidoId, Collection<EstadoPagoPedido> estados);
     List<PagoPedido> findByPedidoIdInOrderByCreadoEnAscIdAsc(Collection<Long> pedidoIds);
     List<PagoPedido> findByProveedorIdAndEstadoInOrderByCreadoEnDesc(Long proveedorId, Collection<EstadoPagoPedido> estados);

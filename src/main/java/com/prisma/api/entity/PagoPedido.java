@@ -62,9 +62,20 @@ public class PagoPedido {
     @Column(name = "monto_proveedor", nullable = false, precision = 12, scale = 2)
     private BigDecimal montoProveedor;
 
+    // HU-13: porcentaje fijo de la plataforma (3.5) y tarifa de Wompi, que es independiente de la comisión
+    @Column(name = "porcentaje_comision", precision = 5, scale = 2)
+    private BigDecimal porcentajeComision;
+
+    @Column(name = "tarifa_pasarela", precision = 12, scale = 2)
+    private BigDecimal tarifaPasarela;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 15)
     private EstadoPagoPedido estado;
+
+    /** HU-13: momento en que el webhook de la pasarela confirmó el resultado. */
+    @Column(name = "confirmado_en")
+    private OffsetDateTime confirmadoEn;
 
     @Column(name = "motivo_rechazo", length = 200)
     private String motivoRechazo;
@@ -118,6 +129,15 @@ public class PagoPedido {
 
     public BigDecimal getMontoProveedor() { return montoProveedor; }
     public void setMontoProveedor(BigDecimal montoProveedor) { this.montoProveedor = montoProveedor; }
+
+    public BigDecimal getPorcentajeComision() { return porcentajeComision; }
+    public void setPorcentajeComision(BigDecimal porcentajeComision) { this.porcentajeComision = porcentajeComision; }
+
+    public BigDecimal getTarifaPasarela() { return tarifaPasarela; }
+    public void setTarifaPasarela(BigDecimal tarifaPasarela) { this.tarifaPasarela = tarifaPasarela; }
+
+    public OffsetDateTime getConfirmadoEn() { return confirmadoEn; }
+    public void setConfirmadoEn(OffsetDateTime confirmadoEn) { this.confirmadoEn = confirmadoEn; }
 
     public EstadoPagoPedido getEstado() { return estado; }
     public void setEstado(EstadoPagoPedido estado) { this.estado = estado; }

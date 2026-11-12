@@ -10,10 +10,11 @@ import com.prisma.api.enums.EstadoPagoPedido;
 import com.prisma.api.enums.EstadoPedido;
 import com.prisma.api.exception.ApiException;
 import com.prisma.api.pagos.PasarelaPagosSimulada;
+import com.prisma.api.pagos.ReglasSplitPayment;
 import com.prisma.api.repository.PagoPedidoRepository;
 import com.prisma.api.repository.PedidoRepository;
 import com.prisma.api.security.UserPrincipal;
-import com.prisma.api.service.CuentaCobroService;
+import com.prisma.api.service.ConfirmacionPagoService;
 import com.prisma.api.service.PagoPedidoService;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -32,15 +33,15 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
 
     private final PagoPedidoRepository pagoRepository;
     private final PedidoRepository pedidoRepository;
-    private final CuentaCobroService cuentaCobroService;
     private final PasarelaPagosSimulada pasarela;
+    private final ConfirmacionPagoService confirmacionPagoService;
 
     public PagoPedidoServiceImpl(PagoPedidoRepository pagoRepository, PedidoRepository pedidoRepository,
-                                 CuentaCobroService cuentaCobroService, PasarelaPagosSimulada pasarela) {
+                                 PasarelaPagosSimulada pasarela, ConfirmacionPagoService confirmacionPagoService) {
         this.pagoRepository = pagoRepository;
         this.pedidoRepository = pedidoRepository;
-        this.cuentaCobroService = cuentaCobroService;
         this.pasarela = pasarela;
+        this.confirmacionPagoService = confirmacionPagoService;
     }
 
     @Override
@@ -59,7 +60,8 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
         }
 
         PasarelaPagosSimulada.Resultado resultado = pasarela.procesar(datos.getMedio(), datos);
-        DivisionPago division = cuentaCobroService.calcularDivision(pedido.getProveedor().getId(), pedido.getTotalAPagar());
+        // HU-13: un solo movimiento del tendero; 3.5% PRISMA y 96.5% proveedor, calculados juntos (atómico)
+        DivisionPago division = ReglasSplitPayment.dividir(pedido.getTotalAPagar());
 
         PagoPedido pago = new PagoPedido();
         pago.setPedidoId(pedido.getId());
@@ -73,13 +75,22 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
         pago.setMedio(datos.getMedio());
         pago.setDetalleMedio(resultado.detalleMedio());
         pago.setMonto(division.total());
+        pago.setPorcentajeComision(ReglasSplitPayment.PORCENTAJE_COMISION);
         pago.setComisionPrisma(division.comisionPrisma());
         pago.setMontoProveedor(division.montoProveedor());
-        pago.setEstado(resultado.aprobado() ? EstadoPagoPedido.EN_GARANTIA : EstadoPagoPedido.RECHAZADO);
-        pago.setMotivoRechazo(resultado.motivoRechazo());
+        pago.setTarifaPasarela(ReglasSplitPayment.tarifaPasarela(datos.getMedio(), division.total()));
+        // HU-13: la transacción queda PENDIENTE hasta que llegue el webhook de la pasarela
+        pago.setEstado(EstadoPagoPedido.PENDIENTE);
         pago.setCreadoEn(OffsetDateTime.now());
+        pago = pagoRepository.save(pago);
 
-        return PagoPedidoResponse.de(pagoRepository.save(pago));
+        // La pasarela simulada notifica el resultado con un webhook firmado, igual que Wompi.
+        // Se procesa con el mismo servicio que atiende POST /api/v1/pagos/webhooks/wompi.
+        Map<String, Object> evento = pasarela.eventoTransaccion(resultado, pago.getReferencia(), pago.getMonto(), pago.getMedio());
+        confirmacionPagoService.procesarEvento(evento);
+
+        PagoPedido confirmado = pagoRepository.findById(pago.getId()).orElse(pago);
+        return PagoPedidoResponse.de(confirmado);
     }
 
     @Override
