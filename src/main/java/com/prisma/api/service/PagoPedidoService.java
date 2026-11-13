@@ -28,6 +28,12 @@ public interface PagoPedidoService {
     /** Al confirmar la entrega con PIN: libera el dinero en garantía al proveedor. Devuelve true si había pago en línea. */
     boolean liberarGarantia(Long pedidoId);
 
+    /**
+     * El pedido pagado se canceló o rechazó antes de la entrega: el dinero en garantía se devuelve al tendero.
+     * Devuelve true si había un pago en garantía y quedó REEMBOLSADO. Un pago ya LIBERADO no se toca.
+     */
+    boolean reembolsarGarantia(Long pedidoId, String motivo);
+
     /** Pagos en línea de los pedidos del proveedor autenticado. */
     RecaudosProveedorResponse recaudosProveedor(UserPrincipal proveedor);
 }

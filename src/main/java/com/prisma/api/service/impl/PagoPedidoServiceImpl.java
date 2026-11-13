@@ -16,7 +16,9 @@ import com.prisma.api.repository.PagoPedidoRepository;
 import com.prisma.api.repository.PedidoRepository;
 import com.prisma.api.security.UserPrincipal;
 import com.prisma.api.service.PagoPedidoService;
+import com.prisma.api.service.PushNotificationService;
 import com.prisma.api.service.WebhookPagosService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +31,10 @@ import java.util.*;
 public class PagoPedidoServiceImpl implements PagoPedidoService {
 
     private static final Set<EstadoPagoPedido> PAGADO = EnumSet.of(EstadoPagoPedido.EN_GARANTIA, EstadoPagoPedido.LIBERADO);
+    // Resultados finales de un pago aprobado: prevalecen sobre los intentos rechazados al mostrar el pedido
+    private static final Set<EstadoPagoPedido> APROBADO_ALGUNA_VEZ =
+            EnumSet.of(EstadoPagoPedido.EN_GARANTIA, EstadoPagoPedido.LIBERADO, EstadoPagoPedido.REEMBOLSADO);
+    private static final Set<EstadoPagoPedido> VISIBLES_PROVEEDOR = APROBADO_ALGUNA_VEZ;
     private static final Set<EstadoPedido> ADMITE_PAGO = EnumSet.of(
             EstadoPedido.CREADO, EstadoPedido.ACEPTADO, EstadoPedido.CARGADO_EN_BODEGA, EstadoPedido.EN_RUTA);
 
@@ -37,6 +43,9 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
     private final PasarelaPagosSimulada pasarela;
     private final PasarelaPagosResiliente pasarelaResiliente;
     private final WebhookPagosService webhookPagosService;
+
+    @Autowired(required = false)
+    private PushNotificationService pushNotificationService;
 
     public PagoPedidoServiceImpl(PagoPedidoRepository pagoRepository, PedidoRepository pedidoRepository,
                                  PasarelaPagosSimulada pasarela, PasarelaPagosResiliente pasarelaResiliente,
@@ -120,7 +129,7 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
         Map<Long, PagoPedido> vigente = new HashMap<>();
         for (PagoPedido p : pagoRepository.findByPedidoIdInOrderByCreadoEnAscIdAsc(ids)) {
             PagoPedido actual = vigente.get(p.getPedidoId());
-            if (actual == null || !PAGADO.contains(actual.getEstado())) {
+            if (actual == null || !APROBADO_ALGUNA_VEZ.contains(actual.getEstado())) {
                 vigente.put(p.getPedidoId(), p);
             }
         }
@@ -154,26 +163,50 @@ public class PagoPedidoServiceImpl implements PagoPedidoService {
     }
 
     @Override
+    @Transactional
+    public boolean reembolsarGarantia(Long pedidoId, String motivo) {
+        Optional<PagoPedido> enGarantia = pagoRepository.findFirstByPedidoIdAndEstadoIn(
+                pedidoId, EnumSet.of(EstadoPagoPedido.EN_GARANTIA));
+        if (enGarantia.isEmpty()) {
+            return false; // sin pago en línea, o ya liberado al proveedor (pedido entregado)
+        }
+        PagoPedido pago = enGarantia.get();
+        pago.setEstado(EstadoPagoPedido.REEMBOLSADO);
+        pago.setReembolsadoEn(OffsetDateTime.now());
+        String detalle = motivo == null || motivo.isBlank() ? "Pedido cancelado antes de la entrega" : motivo.trim();
+        pago.setMotivoReembolso(detalle.length() > 200 ? detalle.substring(0, 200) : detalle);
+        pagoRepository.save(pago);
+
+        if (pushNotificationService != null) {
+            pedidoRepository.findById(pedidoId)
+                    .ifPresent(pedido -> pushNotificationService.notificarReembolsoTendero(pedido, pago.getMonto()));
+        }
+        return true;
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public RecaudosProveedorResponse recaudosProveedor(UserPrincipal proveedor) {
         if (proveedor == null || proveedor.getProveedorId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "El usuario no está asociado a ningún proveedor");
         }
-        List<PagoPedido> pagos = pagoRepository.findByProveedorIdAndEstadoInOrderByCreadoEnDesc(proveedor.getProveedorId(), PAGADO);
+        List<PagoPedido> pagos = pagoRepository.findByProveedorIdAndEstadoInOrderByCreadoEnDesc(
+                proveedor.getProveedorId(), VISIBLES_PROVEEDOR);
         BigDecimal enGarantia = BigDecimal.ZERO;
         BigDecimal liberado = BigDecimal.ZERO;
+        BigDecimal reembolsado = BigDecimal.ZERO;
         int nGarantia = 0;
         int nLiberados = 0;
+        int nReembolsados = 0;
         for (PagoPedido p : pagos) {
-            if (p.getEstado() == EstadoPagoPedido.EN_GARANTIA) {
-                enGarantia = enGarantia.add(p.getMontoProveedor());
-                nGarantia++;
-            } else {
-                liberado = liberado.add(p.getMontoProveedor());
-                nLiberados++;
+            switch (p.getEstado()) {
+                case EN_GARANTIA -> { enGarantia = enGarantia.add(p.getMontoProveedor()); nGarantia++; }
+                case LIBERADO -> { liberado = liberado.add(p.getMontoProveedor()); nLiberados++; }
+                case REEMBOLSADO -> { reembolsado = reembolsado.add(p.getMontoProveedor()); nReembolsados++; }
+                default -> { }
             }
         }
-        return new RecaudosProveedorResponse(enGarantia, liberado, nGarantia, nLiberados,
+        return new RecaudosProveedorResponse(enGarantia, liberado, nGarantia, nLiberados, reembolsado, nReembolsados,
                 pagos.stream().map(PagoPedidoResponse::de).toList());
     }
 

@@ -11,5 +11,7 @@ public enum EstadoPagoPedido {
     /** La pasarela rechazó la transacción; el pedido sigue pendiente de pago. */
     RECHAZADO,
     /** Entrega confirmada: el dinero se libera al proveedor (menos la comisión PRISMA). */
-    LIBERADO
+    LIBERADO,
+    /** El pedido pagado se canceló o rechazó antes de la entrega: el dinero en garantía se devuelve al tendero. */
+    REEMBOLSADO
 }

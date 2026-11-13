@@ -54,6 +54,17 @@ public class ProveedorController {
     @Autowired(required = false)
     private PushNotificationService pushNotificationService;
 
+    // Pedido pagado en línea que se cancela o rechaza: el dinero en garantía vuelve al tendero
+    @Autowired(required = false)
+    private com.prisma.api.service.PagoPedidoService pagoPedidoService;
+
+    private void reembolsarSiCancelado(Pedido pedido, String motivo) {
+        boolean cancelado = pedido.getEstado() == EstadoPedido.CANCELADO || pedido.getEstado() == EstadoPedido.RECHAZADO;
+        if (cancelado && pagoPedidoService != null && pagoPedidoService.reembolsarGarantia(pedido.getId(), motivo)) {
+            pedido.setEstadoPago("REEMBOLSADO");
+        }
+    }
+
     public ProveedorController(
             ProductoRepository productoRepository,
             PedidoRepository pedidoRepository,
@@ -295,6 +306,7 @@ public class ProveedorController {
         }
 
         Pedido guardado = pedidoRepository.save(pedido);
+        reembolsarSiCancelado(guardado, "Pedido " + guardado.getEstado().name().toLowerCase() + " por el proveedor");
         if (pushNotificationService != null) {
             pushNotificationService.notificarCambioEstadoTendero(guardado);
         }
@@ -642,6 +654,7 @@ public class ProveedorController {
         pedido.setActualizadoEn(OffsetDateTime.now());
 
         Pedido guardado = pedidoRepository.save(pedido);
+        reembolsarSiCancelado(guardado, motivo + " - " + detalle);
         return ResponseEntity.ok(ApiResponse.exito("Reporte procesado exitosamente: pedido " + pedido.getEstado(), guardado));
     }
 

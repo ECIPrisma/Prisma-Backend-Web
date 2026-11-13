@@ -86,6 +86,13 @@ public class PagoPedido {
     @Column(name = "liberado_en")
     private OffsetDateTime liberadoEn;
 
+    // Pedido pagado que se canceló o rechazó antes de la entrega: el dinero vuelve al tendero
+    @Column(name = "reembolsado_en")
+    private OffsetDateTime reembolsadoEn;
+
+    @Column(name = "motivo_reembolso", length = 200)
+    private String motivoReembolso;
+
     public PagoPedido() {}
 
     public Long getId() { return id; }
@@ -150,4 +157,10 @@ public class PagoPedido {
 
     public OffsetDateTime getLiberadoEn() { return liberadoEn; }
     public void setLiberadoEn(OffsetDateTime liberadoEn) { this.liberadoEn = liberadoEn; }
+
+    public OffsetDateTime getReembolsadoEn() { return reembolsadoEn; }
+    public void setReembolsadoEn(OffsetDateTime reembolsadoEn) { this.reembolsadoEn = reembolsadoEn; }
+
+    public String getMotivoReembolso() { return motivoReembolso; }
+    public void setMotivoReembolso(String motivoReembolso) { this.motivoReembolso = motivoReembolso; }
 }

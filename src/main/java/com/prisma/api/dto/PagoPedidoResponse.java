@@ -32,14 +32,19 @@ public record PagoPedidoResponse(
         OffsetDateTime creadoEn,
         OffsetDateTime confirmadoEn,
         OffsetDateTime liberadoEn,
-        boolean simulado) {
+        boolean simulado,
+        OffsetDateTime reembolsadoEn,
+        String motivoReembolso) {
 
     public static PagoPedidoResponse de(PagoPedido p) {
-        boolean aprobado = p.getEstado() == EstadoPagoPedido.EN_GARANTIA || p.getEstado() == EstadoPagoPedido.LIBERADO;
+        // "aprobado" = la pasarela aprobó la transacción (un pago reembolsado también fue aprobado en su momento)
+        boolean aprobado = p.getEstado() == EstadoPagoPedido.EN_GARANTIA || p.getEstado() == EstadoPagoPedido.LIBERADO
+                || p.getEstado() == EstadoPagoPedido.REEMBOLSADO;
         return new PagoPedidoResponse(p.getId(), p.getPedidoId(), p.getNumeroPedido(), p.getNombreTienda(),
                 p.getReferencia(), p.getTransaccionId(), p.getPasarela(), p.getMedio().name(), p.getDetalleMedio(),
                 p.getMonto(), p.getPorcentajeComision(), p.getComisionPrisma(), p.getMontoProveedor(),
                 p.getTarifaPasarela(), p.getEstado().name(), aprobado, p.getMotivoRechazo(),
-                p.getConfirmadoEn() != null, p.getCreadoEn(), p.getConfirmadoEn(), p.getLiberadoEn(), true);
+                p.getConfirmadoEn() != null, p.getCreadoEn(), p.getConfirmadoEn(), p.getLiberadoEn(), true,
+                p.getReembolsadoEn(), p.getMotivoReembolso());
     }
 }

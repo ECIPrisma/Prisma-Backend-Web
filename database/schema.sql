@@ -467,11 +467,13 @@ CREATE TABLE pagos_pedido (
     monto_proveedor NUMERIC(12, 2) NOT NULL CHECK (monto_proveedor >= 0),
     porcentaje_comision NUMERIC(5, 2),               -- HU-13: 3.50 fijo
     tarifa_pasarela NUMERIC(12, 2),                  -- HU-13: tarifa Wompi, independiente de la comisión
-    estado VARCHAR(15) NOT NULL CHECK (estado IN ('PENDIENTE', 'EN_GARANTIA', 'RECHAZADO', 'LIBERADO')),
+    estado VARCHAR(15) NOT NULL CHECK (estado IN ('PENDIENTE', 'EN_GARANTIA', 'RECHAZADO', 'LIBERADO', 'REEMBOLSADO')),
     motivo_rechazo VARCHAR(200),
     creado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     confirmado_en TIMESTAMPTZ,                       -- HU-13: cuando llegó el webhook de la pasarela
     liberado_en TIMESTAMPTZ,
+    reembolsado_en TIMESTAMPTZ,                      -- pedido pagado que se canceló/rechazó antes de la entrega
+    motivo_reembolso VARCHAR(200),
     CONSTRAINT chk_split_atomico CHECK (comision_prisma + monto_proveedor = monto)
 );
 

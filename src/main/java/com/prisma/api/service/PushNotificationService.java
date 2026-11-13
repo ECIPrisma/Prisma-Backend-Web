@@ -73,6 +73,18 @@ public class PushNotificationService {
         }
     }
 
+    /** El pedido pagado en línea se canceló o rechazó: se avisa al tendero que su dinero fue reembolsado. */
+    public void notificarReembolsoTendero(Pedido pedido, java.math.BigDecimal monto) {
+        if (pedido == null || pedido.getTienda() == null || pedido.getTienda().getTendero() == null) {
+            return;
+        }
+        String titulo = "Reembolso del pedido #" + pedido.getNumeroPedido();
+        String mensaje = "Tu pedido fue " + pedido.getEstado().name().toLowerCase()
+                + ". Te devolvimos $" + monto + " COP que estaban en garantía.";
+        enviarPush(pedido.getTienda().getTendero(), titulo, mensaje, "PAGO_REEMBOLSADO",
+                pedido.getId(), pedido.getNumeroPedido(), pedido.getEstado().name());
+    }
+
     public void notificarCambioEstadoTendero(Pedido pedido) {
         if (pedido == null || pedido.getTienda() == null || pedido.getTienda().getTendero() == null) {
             return;

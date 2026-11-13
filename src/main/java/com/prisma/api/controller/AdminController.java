@@ -38,6 +38,10 @@ public class AdminController {
     private final CamionRepository camionRepository;
     private final RutaRepository rutaRepository;
 
+    // Pedido pagado en línea que se cancela: el dinero en garantía vuelve al tendero
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.prisma.api.service.PagoPedidoService pagoPedidoService;
+
     public AdminController(ProveedorRepository proveedorRepository,
                            PedidoRepository pedidoRepository,
                            DisputaRepository disputaRepository,
@@ -277,6 +281,9 @@ public class AdminController {
         pedido.setActualizadoEn(OffsetDateTime.now());
 
         Pedido guardado = pedidoRepository.save(pedido);
+        if (pagoPedidoService != null && pagoPedidoService.reembolsarGarantia(pedidoId, "Cancelado por soporte PRISMA: " + motivo)) {
+            guardado.setEstadoPago("REEMBOLSADO");
+        }
         return ResponseEntity.ok(ApiResponse.exito("Pedido cancelado por soporte exitosamente", guardado));
     }
 
