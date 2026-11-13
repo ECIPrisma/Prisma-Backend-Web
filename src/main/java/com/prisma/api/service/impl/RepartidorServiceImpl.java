@@ -2,12 +2,16 @@ package com.prisma.api.service.impl;
 
 import com.prisma.api.dto.ConfirmarEntregaPinRequest;
 import com.prisma.api.entity.Pedido;
+import com.prisma.api.entity.RastreoCamion;
 import com.prisma.api.entity.Ruta;
+import com.prisma.api.entity.Usuario;
 import com.prisma.api.enums.EstadoPedido;
 import com.prisma.api.exception.BadRequestException;
 import com.prisma.api.exception.ResourceNotFoundException;
 import com.prisma.api.repository.PedidoRepository;
+import com.prisma.api.repository.RastreoCamionRepository;
 import com.prisma.api.repository.RutaRepository;
+import com.prisma.api.repository.UsuarioRepository;
 import com.prisma.api.security.UserPrincipal;
 import com.prisma.api.service.PagoPedidoService;
 import com.prisma.api.service.PushNotificationService;
@@ -41,6 +45,12 @@ public class RepartidorServiceImpl implements RepartidorService {
     // N-08: pagos en línea (simulados) retenidos en garantía hasta la entrega
     @Autowired(required = false)
     private PagoPedidoService pagoPedidoService;
+
+    @Autowired(required = false)
+    private RastreoCamionRepository rastreoCamionRepository;
+
+    @Autowired(required = false)
+    private UsuarioRepository usuarioRepository;
 
     public RepartidorServiceImpl(RutaRepository rutaRepository, PedidoRepository pedidoRepository) {
         this.rutaRepository = rutaRepository;
@@ -206,5 +216,31 @@ public class RepartidorServiceImpl implements RepartidorService {
         resumen.put("mensaje", "Jornada completada exitosamente. Fondos listos para liquidación.");
 
         return resumen;
+    }
+
+    @Override
+    public RastreoCamion registrarPosicion(Long rutaId, BigDecimal latitud, BigDecimal longitud, BigDecimal velocidadKmh, BigDecimal rumboGrados, UserPrincipal currentUser) {
+        Ruta ruta = rutaRepository.findById(rutaId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ruta no encontrada con ID: " + rutaId));
+
+        RastreoCamion r = new RastreoCamion();
+        r.setRuta(ruta);
+        r.setCamion(ruta.getCamion());
+
+        Usuario repartidor = ruta.getRepartidor();
+        if (repartidor == null && currentUser != null && usuarioRepository != null) {
+            repartidor = usuarioRepository.findById(currentUser.getId()).orElse(null);
+        }
+        r.setRepartidor(repartidor);
+        r.setLatitud(latitud != null ? latitud : new BigDecimal("4.6097100"));
+        r.setLongitud(longitud != null ? longitud : new BigDecimal("-74.0817500"));
+        r.setVelocidadKmh(velocidadKmh != null ? velocidadKmh : BigDecimal.ZERO);
+        r.setRumboGrados(rumboGrados != null ? rumboGrados : BigDecimal.ZERO);
+        r.setTimestamp(OffsetDateTime.now());
+
+        if (rastreoCamionRepository != null) {
+            return rastreoCamionRepository.save(r);
+        }
+        return r;
     }
 }

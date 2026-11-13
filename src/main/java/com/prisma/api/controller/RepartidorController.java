@@ -4,6 +4,7 @@ import com.prisma.api.aspect.AuditableAction;
 import com.prisma.api.dto.ApiResponse;
 import com.prisma.api.dto.ConfirmarEntregaPinRequest;
 import com.prisma.api.entity.Pedido;
+import com.prisma.api.entity.RastreoCamion;
 import com.prisma.api.entity.Ruta;
 import com.prisma.api.enums.SeveridadAudit;
 import com.prisma.api.security.UserPrincipal;
@@ -16,6 +17,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -79,5 +82,30 @@ public class RepartidorController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> finalizarRuta(@PathVariable Long rutaId) {
         Map<String, Object> resumen = repartidorService.finalizarRuta(rutaId);
         return ResponseEntity.ok(ApiResponse.exito("Ruta finalizada exitosamente", resumen));
+    }
+
+    @PostMapping("/rutas/{rutaId}/posicion")
+    @PreAuthorize("hasAnyAuthority('ROLE_REPARTIDOR', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN', 'ROLE_PROVEEDOR_ADMIN', 'ROLE_PROVEEDOR')")
+    @Operation(summary = "Transmitir posición GPS en tiempo real del vehículo durante la ruta")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> actualizarPosicionGps(
+            @PathVariable Long rutaId,
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        BigDecimal lat = body.get("latitud") != null ? new BigDecimal(body.get("latitud").toString()) : null;
+        BigDecimal lng = body.get("longitud") != null ? new BigDecimal(body.get("longitud").toString()) : null;
+        BigDecimal vel = body.get("velocidadKmh") != null ? new BigDecimal(body.get("velocidadKmh").toString()) : BigDecimal.ZERO;
+        BigDecimal rumbo = body.get("rumboGrados") != null ? new BigDecimal(body.get("rumboGrados").toString()) : BigDecimal.ZERO;
+
+        RastreoCamion guardado = repartidorService.registrarPosicion(rutaId, lat, lng, vel, rumbo, currentUser);
+
+        Map<String, Object> res = new HashMap<>();
+        res.put("id", guardado.getId());
+        res.put("rutaId", rutaId);
+        res.put("latitud", guardado.getLatitud());
+        res.put("longitud", guardado.getLongitud());
+        res.put("velocidadKmh", guardado.getVelocidadKmh());
+        res.put("timestamp", guardado.getTimestamp());
+
+        return ResponseEntity.ok(ApiResponse.exito("Posición GPS actualizada exitosamente", res));
     }
 }
