@@ -82,6 +82,13 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- HU-19: Circuit breaker ante caída de la pasarela de pagos (solo el núcleo, sin starter ni AOP) -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-circuitbreaker</artifactId>
+			<version>2.2.0</version>
+		</dependency>
+
 		<!-- OpenAPI 3 / Swagger Documentation UI -->
 		<dependency>
 			<groupId>org.springdoc</groupId>

@@ -13,6 +13,7 @@ import com.prisma.api.repository.RastreoCamionRepository;
 import com.prisma.api.repository.RutaRepository;
 import com.prisma.api.repository.UsuarioRepository;
 import com.prisma.api.security.UserPrincipal;
+import com.prisma.api.service.PagoPedidoService;
 import com.prisma.api.service.PushNotificationService;
 import com.prisma.api.service.RepartidorService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +41,10 @@ public class RepartidorServiceImpl implements RepartidorService {
 
     @Autowired(required = false)
     private PushNotificationService pushNotificationService;
+
+    // N-08: pagos en línea (simulados) retenidos en garantía hasta la entrega
+    @Autowired(required = false)
+    private PagoPedidoService pagoPedidoService;
 
     @Autowired(required = false)
     private RastreoCamionRepository rastreoCamionRepository;
@@ -88,7 +93,12 @@ public class RepartidorServiceImpl implements RepartidorService {
     @Override
     @Transactional(readOnly = true)
     public List<Pedido> getPedidosRuta(Long rutaId) {
-        return pedidoRepository.findByRutaIdOrderByOrdenParadaAsc(rutaId);
+        List<Pedido> pedidos = pedidoRepository.findByRutaIdOrderByOrdenParadaAsc(rutaId);
+        if (pagoPedidoService != null) {
+            // El conductor ve qué paradas ya están pagadas en línea y no debe cobrarlas
+            pagoPedidoService.anotarEstadoPago(pedidos);
+        }
+        return pedidos;
     }
 
     @Override
@@ -101,8 +111,13 @@ public class RepartidorServiceImpl implements RepartidorService {
         Map<String, Integer> consolidadoProductos = new HashMap<>();
         BigDecimal totalDineroEsperado = BigDecimal.ZERO;
 
+        int pagadosEnLinea = 0;
         for (Pedido p : pedidos) {
-            totalDineroEsperado = totalDineroEsperado.add(p.getTotalAPagar() != null ? p.getTotalAPagar() : BigDecimal.ZERO);
+            if (pagoPedidoService != null && pagoPedidoService.estaPagadoEnLinea(p.getId())) {
+                pagadosEnLinea++; // ya pagado en línea: el conductor no lo recauda
+            } else {
+                totalDineroEsperado = totalDineroEsperado.add(p.getTotalAPagar() != null ? p.getTotalAPagar() : BigDecimal.ZERO);
+            }
             if (p.getItems() != null) {
                 for (var item : p.getItems()) {
                     String nombre = item.getNombreProductoHistorico();
@@ -115,6 +130,7 @@ public class RepartidorServiceImpl implements RepartidorService {
         manifiesto.put("codigoRuta", ruta.getCodigoRuta());
         manifiesto.put("totalParadas", pedidos.size());
         manifiesto.put("totalRecaudoEsperado", totalDineroEsperado);
+        manifiesto.put("pedidosPagadosEnLinea", pagadosEnLinea);
         manifiesto.put("itemsCargados", consolidadoProductos);
 
         return manifiesto;
@@ -166,7 +182,14 @@ public class RepartidorServiceImpl implements RepartidorService {
             pushNotificationService.notificarCambioEstadoTendero(guardado);
         }
 
-        if (pedido.getRuta() != null) {
+        // N-08: si el tendero pagó en línea, la entrega confirmada libera la garantía al proveedor
+        // y el conductor no recibe efectivo por este pedido.
+        boolean pagadoEnLinea = pagoPedidoService != null && pagoPedidoService.liberarGarantia(pedidoId);
+        if (pagadoEnLinea) {
+            guardado.setEstadoPago("LIBERADO");
+        }
+
+        if (pedido.getRuta() != null && !pagadoEnLinea) {
             Ruta r = pedido.getRuta();
             BigDecimal actual = r.getTotalRecaudoEfectivo() != null ? r.getTotalRecaudoEfectivo() : BigDecimal.ZERO;
             r.setTotalRecaudoEfectivo(actual.add(guardado.getTotalAPagar()));

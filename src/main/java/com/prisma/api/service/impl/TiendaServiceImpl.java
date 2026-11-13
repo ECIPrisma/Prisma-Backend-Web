@@ -187,7 +187,8 @@ public class TiendaServiceImpl implements TiendaService {
 
         pedido.setSubtotal(subtotal);
         pedido.setTotalAPagar(subtotal);
-        BigDecimal comision = subtotal.multiply(new BigDecimal("0.025"));
+        // HU-13: comisión de la plataforma fija, Ccomision = Vtotal × 0.035
+        BigDecimal comision = com.prisma.api.pagos.ReglasSplitPayment.comisionPlataforma(subtotal);
         pedido.setComisionPrismaValor(comision);
 
         List<Ruta> rutasProveedor = rutaRepository.findByProveedorIdAndFechaProgramada(prov.getId(), LocalDate.now());
@@ -244,7 +245,7 @@ public class TiendaServiceImpl implements TiendaService {
         nuevo.setFechaEstimadaEntrega(LocalDate.now());
         nuevo.setSubtotal(ultimo.getSubtotal());
         nuevo.setTotalAPagar(ultimo.getTotalAPagar());
-        nuevo.setComisionPrismaValor(ultimo.getComisionPrismaValor());
+        nuevo.setComisionPrismaValor(com.prisma.api.pagos.ReglasSplitPayment.comisionPlataforma(ultimo.getTotalAPagar()));
         nuevo.setMedioPagoUtilizado(MedioPago.EFECTIVO);
         nuevo.setPinEntregaHash(String.format("%06d", new SecureRandom().nextInt(1000000)));
 
