@@ -15,7 +15,11 @@ import com.prisma.api.repository.ProveedorRepository;
 import com.prisma.api.repository.RutaRepository;
 import com.prisma.api.repository.TiendaRepository;
 import com.prisma.api.repository.UsuarioRepository;
+import com.prisma.api.service.RepartidorService;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -47,6 +51,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("dev")
 @Transactional
 public abstract class IntegrationTestBase {
+
+    @Autowired
+    private RepartidorService repartidorServiceBase;
+
+    /**
+     * RepartidorService guarda en memoria los intentos fallidos de PIN por id de pedido; la transacción de la
+     * prueba se revierte pero ese mapa no, y los ids se repiten entre pruebas. Se limpia para aislarlas.
+     */
+    @AfterEach
+    protected void limpiarIntentosDePinEnMemoria() {
+        Object objetivo = AopTestUtils.getUltimateTargetObject(repartidorServiceBase);
+        for (String campo : new String[] {"intentosPorPedido", "bloqueoPorPedido"}) {
+            Object mapa = ReflectionTestUtils.getField(objetivo, campo);
+            if (mapa instanceof Map<?, ?> m) {
+                m.clear();
+            }
+        }
+    }
 
     // Usuarios sembrados por DataInitializer
     protected static final String ADMIN = "admin@prisma.com.co";
@@ -89,6 +111,13 @@ public abstract class IntegrationTestBase {
         return mvc.perform(conToken(post(url), token)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body instanceof String s ? s : json.writeValueAsString(body)));
+    }
+
+    protected ResultActions postReq(String url, String token, Object body, String cabecera, String valor) throws Exception {
+        return mvc.perform(conToken(post(url), token)
+                .header(cabecera, valor)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(body)));
     }
 
     protected ResultActions putReq(String url, String token, Object body) throws Exception {
