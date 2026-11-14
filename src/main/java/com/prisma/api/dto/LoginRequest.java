@@ -2,6 +2,7 @@ package com.prisma.api.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 
 public class LoginRequest {
 
@@ -11,6 +12,9 @@ public class LoginRequest {
 
     @NotBlank(message = "La contraseña es obligatoria")
     private String password;
+
+    @Pattern(regexp = "[0-9]{6}", message = "El código TOTP debe tener 6 dígitos")
+    private String codigoTotp;
 
     public LoginRequest() {}
 
@@ -24,4 +28,7 @@ public class LoginRequest {
 
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+
+    public String getCodigoTotp() { return codigoTotp; }
+    public void setCodigoTotp(String codigoTotp) { this.codigoTotp = codigoTotp; }
 }

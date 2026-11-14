@@ -2,11 +2,14 @@ package com.prisma.api.controller;
 
 import com.prisma.api.aspect.AuditableAction;
 import com.prisma.api.dto.ApiResponse;
+import com.prisma.api.dto.TotpStatusResponse;
+import com.prisma.api.dto.UsuarioAdminDto;
 import com.prisma.api.entity.*;
 import com.prisma.api.enums.EstadoPedido;
 import com.prisma.api.enums.SeveridadAudit;
 import com.prisma.api.repository.*;
 import com.prisma.api.security.UserPrincipal;
+import com.prisma.api.service.TotpAuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Page;
@@ -37,6 +40,8 @@ public class AdminController {
     private final TiendaRepository tiendaRepository;
     private final CamionRepository camionRepository;
     private final RutaRepository rutaRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final TotpAuthService totpAuthService;
 
     public AdminController(ProveedorRepository proveedorRepository,
                            PedidoRepository pedidoRepository,
@@ -45,7 +50,9 @@ public class AdminController {
                            AuditLogRepository auditLogRepository,
                            TiendaRepository tiendaRepository,
                            CamionRepository camionRepository,
-                           RutaRepository rutaRepository) {
+                           RutaRepository rutaRepository,
+                           UsuarioRepository usuarioRepository,
+                           TotpAuthService totpAuthService) {
         this.proveedorRepository = proveedorRepository;
         this.pedidoRepository = pedidoRepository;
         this.disputaRepository = disputaRepository;
@@ -54,6 +61,8 @@ public class AdminController {
         this.tiendaRepository = tiendaRepository;
         this.camionRepository = camionRepository;
         this.rutaRepository = rutaRepository;
+        this.usuarioRepository = usuarioRepository;
+        this.totpAuthService = totpAuthService;
     }
 
     @GetMapping("/proveedores")
@@ -81,7 +90,7 @@ public class AdminController {
         p.setLogoUrl((String) body.getOrDefault("logoUrl", "/logo_icono_tienda.png"));
         
         Object comision = body.get("comisionPorcentaje");
-        p.setComisionPorcentaje(comision != null ? new BigDecimal(comision.toString()) : new BigDecimal("2.50"));
+        p.setComisionPorcentaje(comision != null ? new BigDecimal(comision.toString()) : new BigDecimal("3.50"));
         p.setEstado("ACTIVO");
 
         Proveedor guardado = proveedorRepository.save(p);
@@ -340,7 +349,7 @@ public class AdminController {
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
             }
 
-            BigDecimal porcentaje = prov.getComisionPorcentaje() != null ? prov.getComisionPorcentaje() : new BigDecimal("2.50");
+            BigDecimal porcentaje = prov.getComisionPorcentaje() != null ? prov.getComisionPorcentaje() : new BigDecimal("3.50");
             BigDecimal deudaPrisma = ventasTotales.multiply(porcentaje).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP);
 
             long totalCamiones = todosCamiones.stream()
@@ -424,5 +433,34 @@ public class AdminController {
         resp.put("notas", notas);
 
         return ResponseEntity.ok(ApiResponse.exito("Auxilio administrativo de Prisma registrado", resp));
+    }
+
+    @GetMapping("/usuarios")
+    @PreAuthorize("hasAnyAuthority('ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN', 'ROLE_SOPORTE')")
+    @Operation(summary = "Listar usuarios del sistema para soporte y administración")
+    public ResponseEntity<ApiResponse<List<UsuarioAdminDto>>> getUsuarios() {
+        List<UsuarioAdminDto> dtos = usuarioRepository.findAll().stream()
+                .map(u -> new UsuarioAdminDto(
+                        u.getId(),
+                        u.getEmail(),
+                        u.getNombreCompleto(),
+                        u.getTelefono(),
+                        u.getRol() != null ? u.getRol().name() : null,
+                        u.getEstado(),
+                        u.isTotpEnabled(),
+                        u.getProveedor() != null ? u.getProveedor().getId() : null,
+                        u.getProveedor() != null ? u.getProveedor().getNombreComercial() : null
+                ))
+                .toList();
+        return ResponseEntity.ok(ApiResponse.exito("Usuarios del sistema", dtos));
+    }
+
+    @PostMapping("/usuarios/{id}/reset-totp")
+    @PreAuthorize("hasAnyAuthority('ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN', 'ROLE_SOPORTE')")
+    @Operation(summary = "Restablecer y desactivar 2FA (TOTP) para un usuario que perdió su dispositivo")
+    @AuditableAction(action = "RESET_TOTP_ADMIN", severity = SeveridadAudit.SECURITY, resourceType = "USUARIO")
+    public ResponseEntity<ApiResponse<TotpStatusResponse>> resetTotpUsuario(@PathVariable Long id) {
+        TotpStatusResponse res = totpAuthService.adminReset(id);
+        return ResponseEntity.ok(ApiResponse.exito("Autenticación en dos pasos desactivada exitosamente para el usuario.", res));
     }
 }

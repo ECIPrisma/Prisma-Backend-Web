@@ -9,6 +9,7 @@ target/
 # Log and temp files
 *.log
 *.tmp
+.env
 
 # STS / Eclipse
 .apt_generated

@@ -1,6 +1,7 @@
 package com.prisma.api.config;
 
 import com.prisma.api.security.JwtAuthenticationFilter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -19,6 +20,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -27,12 +29,12 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final List<String> allowedOrigins;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                          @org.springframework.beans.factory.annotation.Value("${prisma.cors.allowed-origins:*}") List<String> allowedOrigins) {
+    @Value("${prisma.cors.allowed-origins:http://localhost:5173,http://localhost:3000,https://*.vercel.app,https://prisma-frontend-web.vercel.app}")
+    private String corsAllowedOrigins;
+
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
-        this.allowedOrigins = allowedOrigins;
     }
 
     @Bean
@@ -52,9 +54,8 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // Rutas públicas de Autenticación, Documentación y Monitoreo
-                        // /me devuelve los datos del token: exige sesión aunque el resto de /auth sea público
-                        .requestMatchers("/api/v1/auth/me").authenticated()
+                        // Rutas protegidas de Autenticación en dos pasos (TOTP)
+                        .requestMatchers("/api/v1/auth/totp", "/api/v1/auth/totp/**").authenticated()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
@@ -68,11 +69,6 @@ public class SecurityConfig {
 
                         .anyRequest().authenticated()
                 )
-                .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((request, response, authException) ->
-                                escribirError(response, 401, "Autenticación requerida o token inválido"))
-                        .accessDeniedHandler((request, response, accessDeniedException) ->
-                                escribirError(response, 403, "No tiene permisos para esta acción")))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -81,7 +77,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(allowedOrigins);
+        List<String> origins = Arrays.stream(corsAllowedOrigins.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        configuration.setAllowedOriginPatterns(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept"));
         configuration.setExposedHeaders(List.of("Authorization"));
@@ -90,11 +90,5 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
-    }
-
-    private static void escribirError(jakarta.servlet.http.HttpServletResponse response, int status, String mensaje) throws java.io.IOException {
-        response.setStatus(status);
-        response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"exitoso\":false,\"mensaje\":\"" + mensaje + "\",\"datos\":null}");
     }
 }

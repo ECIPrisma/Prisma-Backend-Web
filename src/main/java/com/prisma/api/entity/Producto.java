@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
 @Table(name = "productos", uniqueConstraints = {
     @UniqueConstraint(columnNames = {"proveedor_id", "sku"})
 })
+@com.fasterxml.jackson.annotation.JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
 public class Producto {
 
     @Id

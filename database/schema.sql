@@ -20,6 +20,7 @@ CREATE TABLE proveedores (
     contacto_telefono VARCHAR(20) NOT NULL,
     direccion_sede VARCHAR(200),
     ciudad VARCHAR(80) NOT NULL DEFAULT 'Bogotá',
+    zona_cobertura VARCHAR(500), -- HU-04: barrios/localidades/municipios que atiende el proveedor
     logo_url VARCHAR(500),
     color_primario_hex VARCHAR(7) DEFAULT '#F59E0B',
     color_secundario_hex VARCHAR(7) DEFAULT '#1E6F68',
@@ -56,6 +57,9 @@ CREATE TABLE usuarios (
     estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO' CHECK (estado IN ('ACTIVO', 'INACTIVO', 'BLOQUEADO')),
     ultimo_login TIMESTAMPTZ,
     intentos_fallidos_login INT NOT NULL DEFAULT 0,
+    totp_secret_encrypted VARCHAR(512),
+    totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    totp_last_used_step BIGINT,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
@@ -413,6 +417,22 @@ CREATE INDEX idx_audit_logs_recurso ON audit_logs (recurso_afectado_tipo, recurs
 -- Reglas de inmutabilidad: Impedir UPDATE o DELETE sobre audit_logs
 CREATE OR REPLACE RULE audit_logs_no_update AS ON UPDATE TO audit_logs DO INSTEAD NOTHING;
 CREATE OR REPLACE RULE audit_logs_no_delete AS ON DELETE TO audit_logs DO INSTEAD NOTHING;
+
+-- ==============================================================================
+-- TABLA: refresh_tokens (HU-03 Renovación de sesión)
+-- ==============================================================================
+CREATE TABLE refresh_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    usuario_id BIGINT NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    token_hash VARCHAR(64) NOT NULL UNIQUE, -- SHA-256 del token; el valor real solo vive en la cookie HttpOnly
+    expira_en TIMESTAMPTZ NOT NULL,
+    revocado BOOLEAN NOT NULL DEFAULT FALSE,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+COMMENT ON TABLE refresh_tokens IS 'Refresh tokens opacos para renovar el JWT de acceso sin pedir credenciales.';
+
+CREATE INDEX idx_refresh_tokens_usuario_id ON refresh_tokens (usuario_id);
 
 -- ==============================================================================
 -- FIN DEL ESQUEMA DDL PRISMA

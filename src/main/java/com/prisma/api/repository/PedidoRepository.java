@@ -11,13 +11,16 @@ import java.util.Optional;
 @Repository
 public interface PedidoRepository extends JpaRepository<Pedido, Long> {
     Optional<Pedido> findByNumeroPedido(String numeroPedido);
-
-    boolean existsByNumeroPedido(String numeroPedido);
+    Optional<Pedido> findByIdempotencyKey(String idempotencyKey);
     @org.springframework.data.jpa.repository.Query("SELECT DISTINCT p FROM Pedido p LEFT JOIN FETCH p.tienda LEFT JOIN FETCH p.items LEFT JOIN FETCH p.proveedor WHERE p.tienda.id = :tiendaId ORDER BY p.fechaCreacion DESC")
     List<Pedido> findByTiendaIdOrderByFechaCreacionDesc(@org.springframework.data.repository.query.Param("tiendaId") Long tiendaId);
 
     @org.springframework.data.jpa.repository.Query("SELECT DISTINCT p FROM Pedido p LEFT JOIN FETCH p.tienda LEFT JOIN FETCH p.items LEFT JOIN FETCH p.proveedor WHERE p.tienda.tendero.id = :tenderoId ORDER BY p.fechaCreacion DESC")
     List<Pedido> findByTenderoIdOrderByFechaCreacionDesc(@org.springframework.data.repository.query.Param("tenderoId") Long tenderoId);
+
+    List<Pedido> findByProveedorId(Long proveedorId);
+
+    List<Pedido> findByProveedorIdAndTiendaId(Long proveedorId, Long tiendaId);
 
     List<Pedido> findByProveedorIdAndEstado(Long proveedorId, EstadoPedido estado);
 

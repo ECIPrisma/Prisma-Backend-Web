@@ -9,10 +9,15 @@ import org.springframework.http.HttpStatus;
 import com.prisma.api.enums.SeveridadAudit;
 import com.prisma.api.enums.TipoIncidente;
 import com.prisma.api.enums.Rol;
+import com.prisma.api.exception.ApiException;
+import com.prisma.api.exception.BadRequestException;
 import com.prisma.api.repository.*;
+import com.prisma.api.security.AislamientoTenant;
 import com.prisma.api.security.UserPrincipal;
+import com.prisma.api.service.PushNotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -47,6 +52,12 @@ public class ProveedorController {
     private final ItemPedidoRepository itemPedidoRepository;
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
+
+    @Autowired(required = false)
+    private PushNotificationService pushNotificationService;
+
+    @Autowired(required = false)
+    private RastreoCamionRepository rastreoCamionRepository;
 
     public ProveedorController(
             ProductoRepository productoRepository,
@@ -136,8 +147,17 @@ public class ProveedorController {
         Object stockObj = body.get("stockDisponible");
         p.setStockDisponible(stockObj != null ? Integer.parseInt(stockObj.toString()) : 50);
 
-        Object cantMinObj = body.get("cantidadMinimaPedido");
-        p.setCantidadMinimaPedido(cantMinObj != null ? Integer.parseInt(cantMinObj.toString()) : 1);
+        Object cantMinObj = body.containsKey("cantidadMinimaPedido") ? body.get("cantidadMinimaPedido") : body.get("minOrderQty");
+        int cantMin = cantMinObj != null ? Integer.parseInt(cantMinObj.toString()) : 1;
+        if (cantMin <= 0) {
+            throw new BadRequestException("La cantidad mínima debe ser mayor a 0");
+        }
+        p.setCantidadMinimaPedido(cantMin);
+
+        if (body.containsKey("zonasCobertura") && body.get("zonasCobertura") != null) {
+            prov.setZonaCobertura(body.get("zonasCobertura").toString());
+            proveedorRepository.save(prov);
+        }
 
         p.setEsRetornable(Boolean.parseBoolean(String.valueOf(body.getOrDefault("esRetornable", false))));
         p.setImagenUrl((String) body.getOrDefault("imagenUrl", "/logo_icono_tienda.png"));
@@ -166,7 +186,18 @@ public ResponseEntity<ApiResponse<Producto>> actualizarProducto(
         if (body.containsKey("presentacion")) p.setPresentacion(body.get("presentacion").toString());
         if (body.containsKey("precioUnitario")) p.setPrecioUnitario(new BigDecimal(body.get("precioUnitario").toString()));
         if (body.containsKey("precioSugeridoPublico")) p.setPrecioSugeridoPublico(new BigDecimal(body.get("precioSugeridoPublico").toString()));
-        if (body.containsKey("stockDisponible")) p.setStockDisponible(Integer.parseInt(body.get("stockDisponible").toString()));
+        if (body.containsKey("stockDisponible")) {
+            int nuevoStock = Integer.parseInt(body.get("stockDisponible").toString());
+            p.setStockDisponible(nuevoStock);
+        }
+        if (body.containsKey("cantidadMinimaPedido") || body.containsKey("minOrderQty")) {
+            Object cmObj = body.containsKey("cantidadMinimaPedido") ? body.get("cantidadMinimaPedido") : body.get("minOrderQty");
+            int cantMin = Integer.parseInt(cmObj.toString());
+            if (cantMin <= 0) {
+                throw new BadRequestException("La cantidad mínima debe ser mayor a 0");
+            }
+            p.setCantidadMinimaPedido(cantMin);
+        }
         if (body.containsKey("imagenUrl")) p.setImagenUrl(body.get("imagenUrl").toString());
         if (body.containsKey("estado")) p.setEstado(body.get("estado").toString());
 
@@ -234,6 +265,10 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
                 parada.put("ordenParada", ped.getOrdenParada());
                 parada.put("nombreTienda", ped.getTienda() != null ? ped.getTienda().getNombreTienda() : "Tienda");
                 parada.put("direccion", ped.getTienda() != null ? ped.getTienda().getDireccion() : "");
+                parada.put("barrio", ped.getTienda() != null ? ped.getTienda().getBarrio() : "");
+                parada.put("telefono", ped.getTienda() != null ? ped.getTienda().getTelefonoTienda() : "");
+                parada.put("latitud", ped.getTienda() != null ? ped.getTienda().getLatitud() : new BigDecimal("4.6097100"));
+                parada.put("longitud", ped.getTienda() != null ? ped.getTienda().getLongitud() : new BigDecimal("-74.0817500"));
                 parada.put("estado", ped.getEstado().name());
                 parada.put("totalAPagar", ped.getTotalAPagar());
                 parada.put("notas", ped.getNotasEntrega());
@@ -241,10 +276,69 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
             }).toList();
             dto.put("paradas", paradas);
 
+            // Ubicación GPS en tiempo real del camión
+            Map<String, Object> ubicacion = new HashMap<>();
+            if (rastreoCamionRepository != null) {
+                rastreoCamionRepository.findTopByRutaIdOrderByTimestampDesc(r.getId()).ifPresent(rc -> {
+                    ubicacion.put("latitud", rc.getLatitud());
+                    ubicacion.put("longitud", rc.getLongitud());
+                    ubicacion.put("velocidadKmh", rc.getVelocidadKmh());
+                    ubicacion.put("rumboGrados", rc.getRumboGrados());
+                    ubicacion.put("timestamp", rc.getTimestamp());
+                });
+            }
+            if (ubicacion.isEmpty() && !paradas.isEmpty()) {
+                // Fallback dinámico a la primera parada
+                ubicacion.put("latitud", paradas.get(0).get("latitud"));
+                ubicacion.put("longitud", paradas.get(0).get("longitud"));
+                ubicacion.put("velocidadKmh", BigDecimal.ZERO);
+                ubicacion.put("timestamp", OffsetDateTime.now());
+            }
+            dto.put("ubicacionActual", ubicacion);
+
             return dto;
         }).toList();
 
         return ResponseEntity.ok(ApiResponse.exito("Progreso de rutas", resultado));
+    }
+
+    @PostMapping("/rutas/{rutaId}/simular-posicion")
+    @PreAuthorize("hasAnyAuthority('ROLE_PROVEEDOR_ADMIN', 'ROLE_PROVEEDOR', 'ROLE_ADMIN', 'ROLE_PLATFORM_ADMIN')")
+    @Transactional
+    @Operation(summary = "Actualizar posición GPS del camión (Modo Demostración / Sustentación)")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> simularPosicionCamion(
+            @PathVariable Long rutaId,
+            @RequestBody Map<String, Object> body) {
+        Ruta ruta = rutaRepository.findById(rutaId)
+                .orElseThrow(() -> new RuntimeException("Ruta no encontrada con ID: " + rutaId));
+
+        BigDecimal lat = body.get("latitud") != null ? new BigDecimal(body.get("latitud").toString()) : new BigDecimal("4.6097100");
+        BigDecimal lng = body.get("longitud") != null ? new BigDecimal(body.get("longitud").toString()) : new BigDecimal("-74.0817500");
+        BigDecimal vel = body.get("velocidadKmh") != null ? new BigDecimal(body.get("velocidadKmh").toString()) : new BigDecimal("35.5");
+        BigDecimal rumbo = body.get("rumboGrados") != null ? new BigDecimal(body.get("rumboGrados").toString()) : BigDecimal.ZERO;
+
+        RastreoCamion rc = new RastreoCamion();
+        rc.setRuta(ruta);
+        rc.setCamion(ruta.getCamion());
+        rc.setRepartidor(ruta.getRepartidor());
+        rc.setLatitud(lat);
+        rc.setLongitud(lng);
+        rc.setVelocidadKmh(vel);
+        rc.setRumboGrados(rumbo);
+        rc.setTimestamp(OffsetDateTime.now());
+
+        if (rastreoCamionRepository != null) {
+            rc = rastreoCamionRepository.save(rc);
+        }
+
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("rutaId", rutaId);
+        resp.put("latitud", rc.getLatitud());
+        resp.put("longitud", rc.getLongitud());
+        resp.put("velocidadKmh", rc.getVelocidadKmh());
+        resp.put("timestamp", rc.getTimestamp());
+
+        return ResponseEntity.ok(ApiResponse.exito("Coordenadas GPS actualizadas para simulación", resp));
     }
 
     @GetMapping("/pedidos/nuevos")
@@ -252,9 +346,7 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     @Operation(summary = "Consultar todos los pedidos de la empresa proveedora")
     public ResponseEntity<ApiResponse<List<Pedido>>> getPedidosNuevos(@AuthenticationPrincipal UserPrincipal currentUser) {
         Long provId = resolveProveedorId(currentUser);
-        List<Pedido> pedidos = pedidoRepository.findAll().stream()
-                .filter(p -> p.getProveedor() != null && p.getProveedor().getId().equals(provId))
-                .toList();
+        List<Pedido> pedidos = pedidoRepository.findByProveedorId(provId);
         return ResponseEntity.ok(ApiResponse.exito("Pedidos de la empresa", pedidos));
     }
 
@@ -264,19 +356,48 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     @Operation(summary = "Avanzar el estado del pedido (Fulfillment / Despacho)")
     public ResponseEntity<ApiResponse<Pedido>> cambiarEstadoPedido(
             @PathVariable Long pedidoId,
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
         
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RuntimeException("Pedido no encontrado: " + pedidoId));
+        AislamientoTenant.verificarPropietario(currentUser, pedido.getProveedor(), "El pedido");
 
         String nuevoEstado = body.get("estado");
         if (nuevoEstado != null) {
-            pedido.setEstado(EstadoPedido.valueOf(nuevoEstado));
+            EstadoPedido estadoDestino = resolverEstadoPedido(nuevoEstado);
+            EstadoPedido estadoActual = pedido.getEstado();
+
+            if (estadoActual == EstadoPedido.CANCELADO || estadoActual == EstadoPedido.RECHAZADO
+                    || (estadoActual == EstadoPedido.ENTREGADO && estadoDestino != EstadoPedido.ENTREGADO)) {
+                throw new ApiException(HttpStatus.CONFLICT, "Transición de estado no permitida");
+            }
+
+            pedido.setEstado(estadoDestino);
             pedido.setActualizadoEn(OffsetDateTime.now());
         }
 
         Pedido guardado = pedidoRepository.save(pedido);
+        if (pushNotificationService != null) {
+            pushNotificationService.notificarCambioEstadoTendero(guardado);
+        }
         return ResponseEntity.ok(ApiResponse.exito("Estado de pedido actualizado a " + nuevoEstado, guardado));
+    }
+
+    private EstadoPedido resolverEstadoPedido(String raw) {
+        String norm = raw.trim().toUpperCase().replace(" ", "_");
+        return switch (norm) {
+            case "CONFIRMADO" -> EstadoPedido.ACEPTADO;
+            case "EN_DESPACHO" -> EstadoPedido.EN_RUTA;
+            case "ANULADO" -> EstadoPedido.CANCELADO;
+            default -> {
+                try {
+                    yield EstadoPedido.valueOf(norm);
+                } catch (IllegalArgumentException ex) {
+                    throw new ApiException(HttpStatus.CONFLICT, "Transición de estado no permitida");
+                }
+            }
+        };
     }
 
     @GetMapping("/repartidores")
@@ -484,9 +605,11 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     @Operation(summary = "Actualizar datos, PIN de acceso móvil o estado operativo del camión")
     public ResponseEntity<ApiResponse<Map<String, Object>>> actualizarCamion(
             @PathVariable Long id,
-            @RequestBody Map<String, Object> body) {
+            @RequestBody Map<String, Object> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
         Camion c = camionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Camión no encontrado con ID: " + id));
+        AislamientoTenant.verificarPropietario(currentUser, c.getProveedor(), "El camión");
 
         if (body.containsKey("placa")) c.setPlaca(body.get("placa").toString().toUpperCase());
         if (body.containsKey("marcaModelo")) c.setMarcaModelo(body.get("marcaModelo").toString());
@@ -552,9 +675,11 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     @PreAuthorize("hasAnyAuthority('ROLE_PROVEEDOR_ADMIN', 'ROLE_PROVEEDOR', 'ROLE_ADMIN', 'ROLE_PLATFORM_ADMIN')")
     @Transactional
     @Operation(summary = "Dar de baja un camión de la flota")
-    public ResponseEntity<ApiResponse<String>> eliminarCamion(@PathVariable Long id) {
+    public ResponseEntity<ApiResponse<String>> eliminarCamion(@PathVariable Long id,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
         Camion c = camionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Camión no encontrado con ID: " + id));
+        AislamientoTenant.verificarPropietario(currentUser, c.getProveedor(), "El camión");
         c.setEstado("MANTENIMIENTO");
         camionRepository.save(c);
         return ResponseEntity.ok(ApiResponse.exito("Camión retirado del servicio activo", "OK"));
@@ -575,10 +700,12 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     @Operation(summary = "Reportar imposibilidad de entrega o cumplimiento (Tienda cerrada, dinero incompleto, sin stock)")
     public ResponseEntity<ApiResponse<Pedido>> reportarProblemaPedido(
             @PathVariable Long pedidoId,
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
 
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RuntimeException("Pedido no encontrado: " + pedidoId));
+        AislamientoTenant.verificarPropietario(currentUser, pedido.getProveedor(), "El pedido");
 
         String motivo = body.getOrDefault("motivo", "PROBLEMA_ENTREGA");
         String detalle = body.getOrDefault("detalle", "No fue posible realizar la entrega en la tienda.");
@@ -607,10 +734,12 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     @Operation(summary = "Reprogramar fecha de entrega por parte del proveedor")
     public ResponseEntity<ApiResponse<Pedido>> reprogramarPedido(
             @PathVariable Long pedidoId,
-            @RequestBody Map<String, String> body) {
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
 
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new RuntimeException("Pedido no encontrado: " + pedidoId));
+        AislamientoTenant.verificarPropietario(currentUser, pedido.getProveedor(), "El pedido");
 
         String nuevaFechaStr = body.get("nuevaFecha");
         if (nuevaFechaStr != null) {
@@ -634,9 +763,7 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getTiendasClientes(@AuthenticationPrincipal UserPrincipal currentUser) {
         Long provId = resolveProveedorId(currentUser);
         List<Tienda> todasTiendas = tiendaRepository.findAll();
-        List<Pedido> pedidosProveedor = pedidoRepository.findAll().stream()
-                .filter(p -> p.getProveedor() != null && p.getProveedor().getId().equals(provId))
-                .toList();
+        List<Pedido> pedidosProveedor = pedidoRepository.findByProveedorId(provId);
 
         List<Map<String, Object>> resultado = todasTiendas.stream().map(t -> {
             List<Pedido> pedidosTienda = pedidosProveedor.stream()
@@ -659,6 +786,8 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
             dto.put("direccion", t.getDireccion());
             dto.put("barrio", t.getBarrio());
             dto.put("ciudad", t.getCiudad());
+            dto.put("latitud", t.getLatitud());
+            dto.put("longitud", t.getLongitud());
             dto.put("telefono", t.getTelefonoTienda());
             dto.put("nombreTendero", t.getTendero() != null ? t.getTendero().getNombreCompleto() : "Tendero Asignado");
             dto.put("diaPreferidoEntrega", t.getDiaPreferidoEntrega() != null ? t.getDiaPreferidoEntrega() : "Lunes y Jueves");
@@ -795,10 +924,7 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
         Tienda tienda = tiendaRepository.findById(tiendaId)
                 .orElseThrow(() -> new RuntimeException("Tienda no encontrada: " + tiendaId));
 
-        List<Pedido> pedidosTienda = pedidoRepository.findAll().stream()
-                .filter(p -> p.getTienda() != null && p.getTienda().getId().equals(tiendaId))
-                .filter(p -> p.getProveedor() != null && p.getProveedor().getId().equals(provId))
-                .toList();
+        List<Pedido> pedidosTienda = pedidoRepository.findByProveedorIdAndTiendaId(provId, tiendaId);
 
         List<ItemPedido> items = new ArrayList<>();
         for (Pedido ped : pedidosTienda) {
@@ -880,10 +1006,7 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     @Operation(summary = "Consultar estadísticas económicas y ganancias netas del productor")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getEstadisticasEconomicas(@AuthenticationPrincipal UserPrincipal currentUser) {
         Long provId = resolveProveedorId(currentUser);
-
-        List<Pedido> pedidosProveedor = pedidoRepository.findAll().stream()
-                .filter(p -> p.getProveedor() != null && p.getProveedor().getId().equals(provId))
-                .toList();
+        List<Pedido> pedidosProveedor = pedidoRepository.findByProveedorId(provId);
 
         List<Pedido> pedidosEntregados = pedidosProveedor.stream()
                 .filter(p -> p.getEstado() == EstadoPedido.ENTREGADO)
@@ -946,9 +1069,11 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     @Operation(summary = "Reportar percance o varamiento de un camión para auxilio inmediato")
     public ResponseEntity<ApiResponse<Map<String, Object>>> reportarVarado(
             @PathVariable Long rutaId,
-            @RequestBody(required = false) Map<String, String> body) {
+            @RequestBody(required = false) Map<String, String> body,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
         Ruta r = rutaRepository.findById(rutaId)
                 .orElseThrow(() -> new RuntimeException("Ruta no encontrada con ID: " + rutaId));
+        AislamientoTenant.verificarPropietario(currentUser, r.getProveedor(), "La ruta");
 
         String accion = body != null && body.containsKey("accion") ? body.get("accion") : "VARADO";
         String motivo = body != null && body.containsKey("motivo") ? body.get("motivo") : "Camión varado por falla mecánica o percance en la vía";
@@ -984,12 +1109,7 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
     @Operation(summary = "Consultar PQRS, quejas y reclamos de tiendas clientes hacia el productor")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getPqrsProveedor(@AuthenticationPrincipal UserPrincipal currentUser) {
         Long provId = resolveProveedorId(currentUser);
-
-        List<Disputa> disputas = disputaRepository.findAll().stream()
-                .filter(d -> (d.getPedido() != null && d.getPedido().getProveedor() != null && d.getPedido().getProveedor().getId().equals(provId))
-                          || (d.getProveedor() != null && d.getProveedor().getId().equals(provId)))
-                .sorted((a, b) -> b.getFechaReporte().compareTo(a.getFechaReporte()))
-                .toList();
+        List<Disputa> disputas = disputaRepository.findByProveedorOrPedidoProveedorId(provId);
 
         List<Map<String, Object>> res = disputas.stream().map(d -> {
             Map<String, Object> map = new HashMap<>();
@@ -1097,6 +1217,8 @@ public ResponseEntity<ApiResponse<String>> eliminarProducto(@PathVariable Long i
             @AuthenticationPrincipal UserPrincipal currentUser) {
         Disputa d = disputaRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Ticket de PQRS no encontrado con ID: " + id));
+        AislamientoTenant.verificarPropietario(currentUser, d.getProveedor() != null ? d.getProveedor()
+                : (d.getPedido() != null ? d.getPedido().getProveedor() : null), "La PQRS");
 
         String resolucion = body != null && body.containsKey("resolucion") ? body.get("resolucion") : "Reclamo gestionado por el distribuidor";
         String nuevoEstado = body != null && body.containsKey("nuevoEstado") ? body.get("nuevoEstado") : "RESUELTO";

@@ -37,6 +37,9 @@ public class Proveedor {
     @Column(nullable = false, length = 80)
     private String ciudad = "Bogotá";
 
+    @Column(name = "zona_cobertura", length = 500)
+    private String zonaCobertura;
+
     @Column(name = "logo_url", length = 500)
     private String logoUrl;
 
@@ -47,7 +50,7 @@ public class Proveedor {
     private String colorSecundarioHex = "#1E6F68";
 
     @Column(name = "comision_porcentaje", nullable = false, precision = 5, scale = 2)
-    private BigDecimal comisionPorcentaje = new BigDecimal("2.50");
+    private BigDecimal comisionPorcentaje = new BigDecimal("3.50");
 
     @Column(nullable = false, length = 20)
     private String estado = "ACTIVO";
@@ -86,6 +89,9 @@ public class Proveedor {
 
     public String getCiudad() { return ciudad; }
     public void setCiudad(String ciudad) { this.ciudad = ciudad; }
+
+    public String getZonaCobertura() { return zonaCobertura; }
+    public void setZonaCobertura(String zonaCobertura) { this.zonaCobertura = zonaCobertura; }
 
     public String getLogoUrl() { return logoUrl; }
     public void setLogoUrl(String logoUrl) { this.logoUrl = logoUrl; }

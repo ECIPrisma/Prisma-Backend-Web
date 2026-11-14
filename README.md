@@ -118,7 +118,13 @@ Los scripts SQL oficiales se encuentran en la raíz del proyecto:
 | `POST` | `/api/v1/auth/login` | Público | Autenticación con email/teléfono y retorno de JWT |
 | `POST` | `/api/v1/auth/register` | Público | Registro de tendero + tienda (siempre ROLE_TENDERO), devuelve JWT |
 | `GET` | `/api/v1/auth/me` | Autenticado | Obtener información del usuario en sesión |
+| `GET` | `/api/v1/auth/totp/status` | Autenticado | Consultar si el usuario tiene 2FA activado |
+| `POST` | `/api/v1/auth/totp/setup` | Autenticado | Generar secreto y URI para registrar una app TOTP |
+| `POST` | `/api/v1/auth/totp/enable` | Autenticado | Confirmar el código y activar 2FA |
+| `DELETE` | `/api/v1/auth/totp` | Autenticado | Desactivar 2FA con contraseña y código actual |
 | `GET` | `/api/v1/tiendas/catalogo/{proveedorId}` | `ROLE_TENDERO` | Consulta de catálogo y precios por proveedor |
+
+La autenticación TOTP es opcional por usuario y compatible con Google Authenticator. El secreto se cifra en la base de datos; configura `TOTP_ENCRYPTION_KEY` como una clave Base64 de 32 bytes (por ejemplo, generada con `openssl rand -base64 32`) antes de permitir que usuarios activen 2FA, y conserva esa clave para poder descifrar los secretos existentes. Al activar 2FA se revocan las sesiones de renovación y se limpia la cookie actual; el usuario debe iniciar sesión otra vez. El endpoint de login acepta `codigoTotp` cuando 2FA está activado; si falta, responde `401` con el mensaje `Se requiere un código TOTP de 6 dígitos.`.
 | `POST` | `/api/v1/tiendas/pedidos` | `ROLE_TENDERO` | Creación de orden de compra multi-producto |
 | `POST` | `/api/v1/tiendas/pedidos/repetir-ultimo` | `ROLE_TENDERO` | Duplicar el último pedido habitual en un solo clic |
 | `GET` | `/api/v1/repartidores/mis-rutas/hoy` | `ROLE_REPARTIDOR` | Hoja de ruta y secuencia de despachos del día |
