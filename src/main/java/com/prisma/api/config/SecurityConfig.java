@@ -56,9 +56,13 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Rutas protegidas de Autenticación en dos pasos (TOTP)
                         .requestMatchers("/api/v1/auth/totp", "/api/v1/auth/totp/**").authenticated()
+                        // /me devuelve los datos del token: exige sesión aunque el resto de /auth sea público
+                        .requestMatchers("/api/v1/auth/me").authenticated()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers("/actuator/**").permitAll()
+                        // Solo el health check y la info son públicos; métricas y demás endpoints exigen sesión de admin
+                        .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
+                        .requestMatchers("/actuator/**").hasAnyRole("PLATFORM_ADMIN", "ADMIN")
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // Rutas protegidas por Rol
@@ -69,6 +73,11 @@ public class SecurityConfig {
 
                         .anyRequest().authenticated()
                 )
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) ->
+                                escribirError(response, 401, "Autenticación requerida o token inválido"))
+                        .accessDeniedHandler((request, response, accessDeniedException) ->
+                                escribirError(response, 403, "No tiene permisos para esta acción")))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -90,5 +99,11 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+
+    private static void escribirError(jakarta.servlet.http.HttpServletResponse response, int status, String mensaje) throws java.io.IOException {
+        response.setStatus(status);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"exitoso\":false,\"mensaje\":\"" + mensaje + "\",\"datos\":null}");
     }
 }

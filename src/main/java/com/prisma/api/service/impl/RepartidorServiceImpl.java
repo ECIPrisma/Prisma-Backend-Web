@@ -6,6 +6,7 @@ import com.prisma.api.entity.RastreoCamion;
 import com.prisma.api.entity.Ruta;
 import com.prisma.api.entity.Usuario;
 import com.prisma.api.enums.EstadoPedido;
+import com.prisma.api.exception.ApiException;
 import com.prisma.api.exception.BadRequestException;
 import com.prisma.api.exception.ResourceNotFoundException;
 import com.prisma.api.repository.PedidoRepository;
@@ -16,6 +17,7 @@ import com.prisma.api.security.UserPrincipal;
 import com.prisma.api.service.PushNotificationService;
 import com.prisma.api.service.RepartidorService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +54,60 @@ public class RepartidorServiceImpl implements RepartidorService {
         this.pedidoRepository = pedidoRepository;
     }
 
+    private static boolean esAdmin(UserPrincipal u) {
+        return u.getAuthorities().stream().anyMatch(a ->
+                a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_PLATFORM_ADMIN"));
+    }
+
+    /** Un repartidor/proveedor solo puede operar recursos de su propio proveedor. */
+    private static void verificarProveedor(Long proveedorDelRecurso, UserPrincipal u) {
+        if (u == null || esAdmin(u)) return;
+        if (u.getProveedorId() == null || !u.getProveedorId().equals(proveedorDelRecurso)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "El recurso pertenece a otro proveedor");
+        }
+    }
+
+    private void verificarRuta(Long rutaId, UserPrincipal u) {
+        Ruta ruta = rutaRepository.findById(rutaId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ruta no encontrada con ID: " + rutaId));
+        verificarProveedor(ruta.getProveedor() != null ? ruta.getProveedor().getId() : null, u);
+    }
+
+    @Override
+    public Ruta iniciarRuta(Long rutaId, UserPrincipal currentUser) {
+        verificarRuta(rutaId, currentUser);
+        return iniciarRuta(rutaId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Pedido> getPedidosRuta(Long rutaId, UserPrincipal currentUser) {
+        verificarRuta(rutaId, currentUser);
+        return getPedidosRuta(rutaId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getManifiestoCarga(Long rutaId, UserPrincipal currentUser) {
+        verificarRuta(rutaId, currentUser);
+        return getManifiestoCarga(rutaId);
+    }
+
+    @Override
+    @Transactional(noRollbackFor = {BadRequestException.class})
+    public Pedido confirmarEntrega(Long pedidoId, ConfirmarEntregaPinRequest request, UserPrincipal currentUser) {
+        Pedido pedido = pedidoRepository.findById(pedidoId)
+                .orElseThrow(() -> new ResourceNotFoundException("Pedido no encontrado con ID: " + pedidoId));
+        verificarProveedor(pedido.getProveedor() != null ? pedido.getProveedor().getId() : null, currentUser);
+        return confirmarEntrega(pedidoId, request);
+    }
+
+    @Override
+    public Map<String, Object> finalizarRuta(Long rutaId, UserPrincipal currentUser) {
+        verificarRuta(rutaId, currentUser);
+        return finalizarRuta(rutaId);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<Ruta> getRutasHoy(UserPrincipal currentUser) {
@@ -66,6 +122,10 @@ public class RepartidorServiceImpl implements RepartidorService {
     public Ruta iniciarRuta(Long rutaId) {
         Ruta ruta = rutaRepository.findById(rutaId)
                 .orElseThrow(() -> new ResourceNotFoundException("Ruta no encontrada con ID: " + rutaId));
+
+        if ("FINALIZADA".equals(ruta.getEstado())) {
+            throw new ApiException(HttpStatus.CONFLICT, "La ruta ya fue finalizada y no puede iniciarse de nuevo");
+        }
 
         ruta.setEstado("EN_EJECUCION");
         ruta.setHoraInicioReal(OffsetDateTime.now());
@@ -126,6 +186,11 @@ public class RepartidorServiceImpl implements RepartidorService {
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido no encontrado con ID: " + pedidoId));
 
+        if (pedido.getEstado() != null && pedido.getEstado() != EstadoPedido.EN_RUTA) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "Solo se puede confirmar la entrega de un pedido EN_RUTA (estado actual: " + pedido.getEstado() + ")");
+        }
+
         OffsetDateTime bloqueadoHasta = pedido.getPinBloqueadoHasta() != null
                 ? pedido.getPinBloqueadoHasta()
                 : bloqueoPorPedido.get(pedidoId);
@@ -134,7 +199,11 @@ public class RepartidorServiceImpl implements RepartidorService {
             throw new BadRequestException("Confirmación bloqueada temporalmente por superar el límite de intentos de OTP.");
         }
 
-        if (!pedido.getPinEntregaHash().equals(request.getPin().trim())) {
+        // Comparación en tiempo constante para no filtrar el PIN por temporización.
+        boolean pinCorrecto = java.security.MessageDigest.isEqual(
+                pedido.getPinEntregaHash().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                request.getPin().trim().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (!pinCorrecto) {
             int nuevosIntentos = Math.max(pedido.getIntentosFallidosPin(), intentosPorPedido.getOrDefault(pedidoId, 0)) + 1;
             pedido.setIntentosFallidosPin(nuevosIntentos);
             intentosPorPedido.put(pedidoId, nuevosIntentos);

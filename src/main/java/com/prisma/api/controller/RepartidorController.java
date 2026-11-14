@@ -44,24 +44,27 @@ public class RepartidorController {
     @PostMapping("/rutas/{rutaId}/iniciar")
     @PreAuthorize("hasAnyAuthority('ROLE_REPARTIDOR', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
     @Operation(summary = "Iniciar jornada y despacho de ruta en vivo (CU-R02)")
-    public ResponseEntity<ApiResponse<Ruta>> iniciarRuta(@PathVariable Long rutaId) {
-        Ruta guardada = repartidorService.iniciarRuta(rutaId);
+    public ResponseEntity<ApiResponse<Ruta>> iniciarRuta(@PathVariable Long rutaId,
+                                                         @AuthenticationPrincipal UserPrincipal currentUser) {
+        Ruta guardada = repartidorService.iniciarRuta(rutaId, currentUser);
         return ResponseEntity.ok(ApiResponse.exito("Ruta iniciada en ejecución", guardada));
     }
 
     @GetMapping("/rutas/{rutaId}/pedidos")
     @PreAuthorize("hasAnyAuthority('ROLE_REPARTIDOR', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
     @Operation(summary = "Consultar paradas y pedidos secuenciales de la hoja de ruta (CU-R03)")
-    public ResponseEntity<ApiResponse<List<Pedido>>> getPedidosRuta(@PathVariable Long rutaId) {
-        List<Pedido> pedidos = repartidorService.getPedidosRuta(rutaId);
+    public ResponseEntity<ApiResponse<List<Pedido>>> getPedidosRuta(@PathVariable Long rutaId,
+                                                                    @AuthenticationPrincipal UserPrincipal currentUser) {
+        List<Pedido> pedidos = repartidorService.getPedidosRuta(rutaId, currentUser);
         return ResponseEntity.ok(ApiResponse.exito("Paradas de la ruta", pedidos));
     }
 
     @GetMapping("/rutas/{rutaId}/manifiesto")
     @PreAuthorize("hasAnyAuthority('ROLE_REPARTIDOR', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
     @Operation(summary = "Consultar manifiesto de carga consolidado por camión (CU-R04)")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getManifiestoCarga(@PathVariable Long rutaId) {
-        Map<String, Object> manifiesto = repartidorService.getManifiestoCarga(rutaId);
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getManifiestoCarga(@PathVariable Long rutaId,
+                                                                               @AuthenticationPrincipal UserPrincipal currentUser) {
+        Map<String, Object> manifiesto = repartidorService.getManifiestoCarga(rutaId, currentUser);
         return ResponseEntity.ok(ApiResponse.exito("Manifiesto de carga", manifiesto));
     }
 
@@ -71,16 +74,18 @@ public class RepartidorController {
     @AuditableAction(action = "ENTREGA_VALIDADA_PIN", severity = SeveridadAudit.INFO, resourceType = "PEDIDO")
     public ResponseEntity<ApiResponse<Pedido>> confirmarEntrega(
             @PathVariable Long pedidoId,
-            @Valid @RequestBody ConfirmarEntregaPinRequest request) {
-        Pedido guardado = repartidorService.confirmarEntrega(pedidoId, request);
+            @Valid @RequestBody ConfirmarEntregaPinRequest request,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        Pedido guardado = repartidorService.confirmarEntrega(pedidoId, request, currentUser);
         return ResponseEntity.ok(ApiResponse.exito("Entrega confirmada y registrada exitosamente", guardado));
     }
 
     @PostMapping("/rutas/{rutaId}/finalizar")
     @PreAuthorize("hasAnyAuthority('ROLE_REPARTIDOR', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
     @Operation(summary = "Finalizar ruta y resumen de jornada de recaudos (CU-R07)")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> finalizarRuta(@PathVariable Long rutaId) {
-        Map<String, Object> resumen = repartidorService.finalizarRuta(rutaId);
+    public ResponseEntity<ApiResponse<Map<String, Object>>> finalizarRuta(@PathVariable Long rutaId,
+                                                                          @AuthenticationPrincipal UserPrincipal currentUser) {
+        Map<String, Object> resumen = repartidorService.finalizarRuta(rutaId, currentUser);
         return ResponseEntity.ok(ApiResponse.exito("Ruta finalizada exitosamente", resumen));
     }
 

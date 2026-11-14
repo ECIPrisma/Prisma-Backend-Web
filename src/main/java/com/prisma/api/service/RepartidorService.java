@@ -17,5 +17,13 @@ public interface RepartidorService {
     Map<String, Object> getManifiestoCarga(Long rutaId);
     Pedido confirmarEntrega(Long pedidoId, ConfirmarEntregaPinRequest request);
     Map<String, Object> finalizarRuta(Long rutaId);
+
+    // Variantes con control multi-tenant: un repartidor/proveedor solo opera recursos de su proveedor.
+    Ruta iniciarRuta(Long rutaId, UserPrincipal currentUser);
+    List<Pedido> getPedidosRuta(Long rutaId, UserPrincipal currentUser);
+    Map<String, Object> getManifiestoCarga(Long rutaId, UserPrincipal currentUser);
+    Pedido confirmarEntrega(Long pedidoId, ConfirmarEntregaPinRequest request, UserPrincipal currentUser);
+    Map<String, Object> finalizarRuta(Long rutaId, UserPrincipal currentUser);
+
     RastreoCamion registrarPosicion(Long rutaId, BigDecimal latitud, BigDecimal longitud, BigDecimal velocidadKmh, BigDecimal rumboGrados, UserPrincipal currentUser);
 }

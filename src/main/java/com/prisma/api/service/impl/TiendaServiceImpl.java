@@ -4,6 +4,7 @@ import com.prisma.api.entity.*;
 import com.prisma.api.enums.EstadoPedido;
 import com.prisma.api.enums.MedioPago;
 import com.prisma.api.enums.TipoIncidente;
+import com.prisma.api.exception.ApiException;
 import com.prisma.api.exception.BadRequestException;
 import com.prisma.api.exception.ResourceNotFoundException;
 import com.prisma.api.repository.*;
@@ -11,6 +12,7 @@ import com.prisma.api.security.UserPrincipal;
 import com.prisma.api.service.PushNotificationService;
 import com.prisma.api.service.TiendaService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +38,43 @@ public class TiendaServiceImpl implements TiendaService {
 
     @Autowired(required = false)
     private PushNotificationService pushNotificationService;
+
+    /** Comisión vigente (N-02): se lee de configuracion_sistema.comision_porcentaje; 2.5 % si no existe. */
+    @Autowired(required = false)
+    private ConfiguracionSistemaRepository configuracionRepository;
+
+    private static final BigDecimal COMISION_POR_DEFECTO_PCT = new BigDecimal("2.5");
+
+    BigDecimal porcentajeComision() {
+        if (configuracionRepository == null) {
+            return COMISION_POR_DEFECTO_PCT;
+        }
+        try {
+            return configuracionRepository.findByClave("comision_porcentaje")
+                    .map(c -> new BigDecimal(c.getValor().trim()))
+                    .filter(v -> v.signum() >= 0 && v.compareTo(new BigDecimal("100")) <= 0)
+                    .orElse(COMISION_POR_DEFECTO_PCT);
+        } catch (RuntimeException e) {
+            return COMISION_POR_DEFECTO_PCT;
+        }
+    }
+
+    /** Número de pedido que no exista todavía (el sufijo de 4 dígitos colisiona rápido). */
+    private String generarNumeroPedido() {
+        SecureRandom random = new SecureRandom();
+        for (int i = 0; i < 50; i++) {
+            String candidato = "PED-2026-" + String.format("%04d", random.nextInt(10000));
+            if (!pedidoRepository.existsByNumeroPedido(candidato)) {
+                return candidato;
+            }
+        }
+        return "PED-2026-" + System.currentTimeMillis();
+    }
+
+    private static boolean esAdmin(UserPrincipal u) {
+        return u != null && u.getAuthorities().stream().anyMatch(a ->
+                a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ROLE_PLATFORM_ADMIN"));
+    }
 
     public TiendaServiceImpl(TiendaRepository tiendaRepository,
                              ProductoRepository productoRepository,
@@ -120,23 +159,36 @@ public class TiendaServiceImpl implements TiendaService {
         if (idempotencyKey != null && !idempotencyKey.isEmpty()) {
             var existente = pedidoRepository.findByIdempotencyKey(idempotencyKey);
             if (existente.isPresent()) {
-                return existente.get();
+                Pedido previo = existente.get();
+                Usuario duenio = previo.getTienda() != null ? previo.getTienda().getTendero() : null;
+                if (duenio != null && !duenio.getId().equals(currentUser.getId()) && !esAdmin(currentUser)) {
+                    throw new ApiException(HttpStatus.CONFLICT, "La clave de idempotencia ya fue usada por otra cuenta");
+                }
+                return previo;
             }
         }
 
         Tienda tienda = tiendaRepository.findFirstByTenderoId(currentUser.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Tienda no encontrada para el tendero autenticado"));
 
-        Long proveedorId = payload.containsKey("proveedorId") ? Long.parseLong(payload.get("proveedorId").toString()) : 1L;
+        Long proveedorId;
+        try {
+            // La app actual envía siempre proveedorId; si falta se mantiene 1 por compatibilidad.
+            proveedorId = payload.containsKey("proveedorId") ? Long.parseLong(payload.get("proveedorId").toString()) : 1L;
+        } catch (NumberFormatException e) {
+            throw new BadRequestException("proveedorId debe ser numérico");
+        }
         Proveedor prov = proveedorRepository.findById(proveedorId)
                 .orElseThrow(() -> new ResourceNotFoundException("Proveedor no encontrado con ID: " + proveedorId));
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> itemsData = (List<Map<String, Object>>) payload.getOrDefault("items", List.of());
+        if (itemsData == null || itemsData.isEmpty()) {
+            throw new BadRequestException("El pedido debe incluir al menos un producto");
+        }
 
         Pedido pedido = new Pedido();
-        String randomSuffix = String.format("%04d", new SecureRandom().nextInt(10000));
-        pedido.setNumeroPedido("PED-2026-" + randomSuffix);
+        pedido.setNumeroPedido(generarNumeroPedido());
         pedido.setTienda(tienda);
         pedido.setProveedor(prov);
         pedido.setEstado(EstadoPedido.CREADO);
@@ -153,12 +205,31 @@ public class TiendaServiceImpl implements TiendaService {
         List<ItemPedido> itemsGuardados = new ArrayList<>();
 
         for (Map<String, Object> it : itemsData) {
-            Long prodId = Long.parseLong(it.get("productoId").toString());
-            int cantidad = Integer.parseInt(it.get("cantidad").toString());
-            Producto prod = productoRepository.findById(prodId).orElse(null);
-            if (prod != null) {
+            Long prodId;
+            int cantidad;
+            try {
+                prodId = Long.parseLong(String.valueOf(it.get("productoId")));
+                cantidad = Integer.parseInt(String.valueOf(it.get("cantidad")));
+            } catch (NumberFormatException e) {
+                throw new BadRequestException("productoId y cantidad deben ser numéricos");
+            }
+            if (cantidad <= 0) {
+                throw new BadRequestException("La cantidad debe ser mayor que cero");
+            }
+            Producto prod = productoRepository.findById(prodId)
+                    .orElseThrow(() -> new BadRequestException("Producto no encontrado: " + prodId));
+            {
                 if (prod.getStockDisponible() <= 0) {
                     throw new BadRequestException("El producto " + prod.getNombre() + " se encuentra Agotado");
+                }
+                if (prod.getProveedor() != null && !prov.getId().equals(prod.getProveedor().getId())) {
+                    throw new BadRequestException("El producto " + prodId + " no pertenece al proveedor seleccionado");
+                }
+                if ("INACTIVO".equals(prod.getEstado())) {
+                    throw new BadRequestException("El producto " + prodId + " ya no está disponible");
+                }
+                if (cantidad > prod.getStockDisponible()) {
+                    throw new BadRequestException("Stock insuficiente de " + prod.getNombre() + ": quedan " + prod.getStockDisponible());
                 }
                 if (cantidad < prod.getCantidadMinimaPedido()) {
                     throw new BadRequestException("La cantidad mínima para este producto es " + prod.getCantidadMinimaPedido() + " unidades");
@@ -181,13 +252,9 @@ public class TiendaServiceImpl implements TiendaService {
             }
         }
 
-        if (subtotal.compareTo(BigDecimal.ZERO) == 0) {
-            subtotal = new BigDecimal("125000.00");
-        }
-
         pedido.setSubtotal(subtotal);
         pedido.setTotalAPagar(subtotal);
-        BigDecimal comision = subtotal.multiply(new BigDecimal("0.025"));
+        BigDecimal comision = subtotal.multiply(porcentajeComision()).movePointLeft(2);
         pedido.setComisionPrismaValor(comision);
 
         List<Ruta> rutasProveedor = rutaRepository.findByProveedorIdAndFechaProgramada(prov.getId(), LocalDate.now());
@@ -236,7 +303,7 @@ public class TiendaServiceImpl implements TiendaService {
         Pedido ultimo = pedidos.get(0);
 
         Pedido nuevo = new Pedido();
-        nuevo.setNumeroPedido("PED-2026-" + String.format("%04d", new SecureRandom().nextInt(10000)));
+        nuevo.setNumeroPedido(generarNumeroPedido());
         nuevo.setTienda(tienda);
         Proveedor prov = ultimo.getProveedor();
         nuevo.setProveedor(prov);
@@ -293,6 +360,11 @@ public class TiendaServiceImpl implements TiendaService {
     public Disputa reportarAveria(Long pedidoId, Map<String, String> payload, UserPrincipal currentUser) {
         Pedido pedido = pedidoRepository.findById(pedidoId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pedido no encontrado con ID: " + pedidoId));
+
+        Usuario duenio = pedido.getTienda() != null ? pedido.getTienda().getTendero() : null;
+        if (!esAdmin(currentUser) && duenio != null && !duenio.getId().equals(currentUser.getId())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "El pedido pertenece a otra tienda");
+        }
 
         Usuario tendero = usuarioRepository.findById(currentUser.getId()).orElse(null);
 
