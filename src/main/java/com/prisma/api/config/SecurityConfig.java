@@ -30,7 +30,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    @Value("${prisma.cors.allowed-origins:http://localhost:5173,http://localhost:3000,https://*.vercel.app,https://prisma-frontend-web.vercel.app}")
+    @Value("${prisma.cors.allowed-origins:http://localhost:5173,http://localhost:3000,https://prisma-frontend-web.vercel.app,https://eciprisma.duckdns.org,http://eciprisma.duckdns.org,https://prisma-aws.tail2474b3.ts.net,https://server-sabio.tail2474b3.ts.net}")
     private String corsAllowedOrigins;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
@@ -79,10 +79,25 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        List<String> origins = Arrays.stream(corsAllowedOrigins.split(","))
+        List<String> origins = new java.util.ArrayList<>(Arrays.stream(corsAllowedOrigins.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .toList();
+                .toList());
+        if (!origins.contains("https://eciprisma.duckdns.org")) {
+            origins.add("https://eciprisma.duckdns.org");
+        }
+        if (!origins.contains("http://eciprisma.duckdns.org")) {
+            origins.add("http://eciprisma.duckdns.org");
+        }
+        if (!origins.contains("https://prisma-frontend-web.vercel.app")) {
+            origins.add("https://prisma-frontend-web.vercel.app");
+        }
+        if (!origins.contains("https://prisma-aws.tail2474b3.ts.net")) {
+            origins.add("https://prisma-aws.tail2474b3.ts.net");
+        }
+        if (!origins.contains("https://server-sabio.tail2474b3.ts.net")) {
+            origins.add("https://server-sabio.tail2474b3.ts.net");
+        }
         configuration.setAllowedOriginPatterns(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept"));

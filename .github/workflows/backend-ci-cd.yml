@@ -1,4 +1,4 @@
-name: Backend CI/CD (Render Cloud)
+name: Backend CI/CD (Render Cloud & AWS Failover)
 
 on:
   push:
@@ -51,3 +51,67 @@ jobs:
           curl -s https://prisma-backend-web.onrender.com/actuator/health || true
           echo ""
           echo "Verificacion de conexion con base de datos Neon PostgreSQL completada."
+
+  deploy-to-aws:
+    name: Despliegue Continuo a AWS EC2 (Failover Node)
+    needs: build-and-verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Comprobar si AWS EC2 está encendido
+        id: ping-ec2
+        run: |
+          HOST="${{ secrets.EC2_HOST || '3.81.211.182' }}"
+          echo "Comprobando disponibilidad de AWS EC2 en $HOST:22..."
+          if nc -z -w 3 "$HOST" 22; then
+            echo "ec2_online=true" >> $GITHUB_OUTPUT
+            echo "AWS EC2 está encendido y accesible."
+          else
+            echo "ec2_online=false" >> $GITHUB_OUTPUT
+            echo "AWS EC2 está apagado para ahorro de créditos. Se omite el despliegue a AWS sin romper el build."
+          fi
+
+      - name: Set up JDK 21
+        if: steps.ping-ec2.outputs.ec2_online == 'true'
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build JAR for Deployment
+        if: steps.ping-ec2.outputs.ec2_online == 'true'
+        run: ./mvnw clean package -DskipTests
+
+      - name: Copy JAR to AWS EC2 via SCP
+        if: steps.ping-ec2.outputs.ec2_online == 'true' && env.SSH_KEY != ''
+        uses: appleboy/scp-action@v0.1.7
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        with:
+          host: ${{ secrets.EC2_HOST || '3.81.211.182' }}
+          username: ${{ secrets.EC2_USER || 'ec2-user' }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "target/prisma-backend-0.0.1-SNAPSHOT.jar"
+          target: "/home/ec2-user/"
+          strip_components: 1
+
+      - name: Restart Spring Boot Service on AWS EC2
+        if: steps.ping-ec2.outputs.ec2_online == 'true' && env.SSH_KEY != ''
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        with:
+          host: ${{ secrets.EC2_HOST || '3.81.211.182' }}
+          username: ${{ secrets.EC2_USER || 'ec2-user' }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo mv /home/ec2-user/prisma-backend-0.0.1-SNAPSHOT.jar /opt/prisma/prisma-backend.jar
+            sudo chown -R ec2-user:ec2-user /opt/prisma
+            sudo systemctl restart prisma-backend.service
+            echo "Servicio prisma-backend reiniciado exitosamente en AWS EC2."
