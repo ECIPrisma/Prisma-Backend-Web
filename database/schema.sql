@@ -483,5 +483,44 @@ CREATE INDEX idx_pagos_pedido_pedido ON pagos_pedido (pedido_id);
 CREATE INDEX idx_pagos_pedido_proveedor ON pagos_pedido (proveedor_id);
 
 -- ==============================================================================
+-- MVP: Suscripción mensual Prisma Pro que el distribuidor (proveedor) paga a PRISMA
+-- (pasarela SIMULADA; los tenderos siguen pagando sus pedidos contra entrega)
+-- ==============================================================================
+CREATE TABLE suscripciones_proveedor (
+    id BIGSERIAL PRIMARY KEY,
+    proveedor_id BIGINT NOT NULL UNIQUE,
+    plan VARCHAR(30) NOT NULL,                       -- 'DISTRIBUIDOR_PRO'
+    precio_mensual NUMERIC(12, 2) NOT NULL CHECK (precio_mensual >= 0), -- 120.000 con IVA
+    vigente_hasta DATE,                              -- activa mientras sea hoy o después
+    activada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    actualizada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE pagos_suscripcion (
+    id BIGSERIAL PRIMARY KEY,
+    proveedor_id BIGINT NOT NULL,
+    usuario_id BIGINT NOT NULL,
+    plan VARCHAR(30) NOT NULL,
+    referencia VARCHAR(60) NOT NULL UNIQUE,
+    transaccion_id VARCHAR(40) NOT NULL,
+    pasarela VARCHAR(30) NOT NULL,
+    medio VARCHAR(15) NOT NULL CHECK (medio IN ('NEQUI', 'PSE', 'TARJETA')),
+    detalle_medio VARCHAR(80) NOT NULL,              -- enmascarado
+    monto NUMERIC(12, 2) NOT NULL CHECK (monto >= 0),
+    valor_neto NUMERIC(12, 2) NOT NULL,
+    valor_iva NUMERIC(12, 2) NOT NULL,
+    tarifa_pasarela NUMERIC(12, 2),
+    estado VARCHAR(15) NOT NULL CHECK (estado IN ('PENDIENTE', 'APROBADO', 'RECHAZADO')),
+    motivo_rechazo VARCHAR(200),
+    periodo_desde DATE,
+    periodo_hasta DATE,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    confirmado_en TIMESTAMPTZ,
+    CONSTRAINT chk_iva_suscripcion CHECK (valor_neto + valor_iva = monto)
+);
+
+CREATE INDEX idx_pagos_suscripcion_proveedor ON pagos_suscripcion (proveedor_id);
+
+-- ==============================================================================
 -- FIN DEL ESQUEMA DDL PRISMA
 -- ==============================================================================
