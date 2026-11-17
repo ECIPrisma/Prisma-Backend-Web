@@ -57,12 +57,27 @@ jobs:
     needs: build-and-verify
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    continue-on-error: true
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Comprobar si AWS EC2 está encendido
+        id: ping-ec2
+        run: |
+          HOST="${{ secrets.EC2_HOST || '3.81.211.182' }}"
+          echo "Comprobando disponibilidad de AWS EC2 en $HOST:22..."
+          if nc -z -w 3 "$HOST" 22; then
+            echo "ec2_online=true" >> $GITHUB_OUTPUT
+            echo "AWS EC2 está encendido y accesible."
+          else
+            echo "ec2_online=false" >> $GITHUB_OUTPUT
+            echo "AWS EC2 está apagado para ahorro de créditos. Se omite el despliegue a AWS sin romper el build."
+          fi
+
       - name: Set up JDK 21
+        if: steps.ping-ec2.outputs.ec2_online == 'true'
         uses: actions/setup-java@v5
         with:
           java-version: '21'
@@ -70,10 +85,11 @@ jobs:
           cache: maven
 
       - name: Build JAR for Deployment
+        if: steps.ping-ec2.outputs.ec2_online == 'true'
         run: ./mvnw clean package -DskipTests
 
       - name: Copy JAR to AWS EC2 via SCP
-        if: env.SSH_KEY != ''
+        if: steps.ping-ec2.outputs.ec2_online == 'true' && env.SSH_KEY != ''
         uses: appleboy/scp-action@v0.1.7
         env:
           SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
@@ -86,7 +102,7 @@ jobs:
           strip_components: 1
 
       - name: Restart Spring Boot Service on AWS EC2
-        if: env.SSH_KEY != ''
+        if: steps.ping-ec2.outputs.ec2_online == 'true' && env.SSH_KEY != ''
         uses: appleboy/ssh-action@v1.0.3
         env:
           SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
