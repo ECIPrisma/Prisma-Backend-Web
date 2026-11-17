@@ -77,10 +77,19 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        List<String> origins = Arrays.stream(corsAllowedOrigins.split(","))
+        List<String> origins = new java.util.ArrayList<>(Arrays.stream(corsAllowedOrigins.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
-                .toList();
+                .toList());
+        if (!origins.contains("https://eciprisma.duckdns.org")) {
+            origins.add("https://eciprisma.duckdns.org");
+        }
+        if (!origins.contains("http://eciprisma.duckdns.org")) {
+            origins.add("http://eciprisma.duckdns.org");
+        }
+        if (!origins.contains("https://*.duckdns.org")) {
+            origins.add("https://*.duckdns.org");
+        }
         configuration.setAllowedOriginPatterns(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "Accept"));
