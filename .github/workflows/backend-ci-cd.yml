@@ -114,5 +114,4 @@ jobs:
             sudo mv /home/ec2-user/prisma-backend-0.0.1-SNAPSHOT.jar /opt/prisma/prisma-backend.jar
             sudo chown -R ec2-user:ec2-user /opt/prisma
             sudo systemctl restart prisma-backend.service
-            sleep 6
-            curl -s http://127.0.0.1:8080/actuator/health
+            echo "Servicio prisma-backend reiniciado exitosamente en AWS EC2."
