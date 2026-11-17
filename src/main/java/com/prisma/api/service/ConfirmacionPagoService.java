@@ -36,13 +36,16 @@ public class ConfirmacionPagoService {
 
     private final PagoPedidoRepository pagoRepository;
     private final PedidoRepository pedidoRepository;
+    private final ConfirmacionSuscripcionService confirmacionSuscripcion;
 
     @Autowired(required = false)
     private PushNotificationService pushNotificationService;
 
-    public ConfirmacionPagoService(PagoPedidoRepository pagoRepository, PedidoRepository pedidoRepository) {
+    public ConfirmacionPagoService(PagoPedidoRepository pagoRepository, PedidoRepository pedidoRepository,
+                                   ConfirmacionSuscripcionService confirmacionSuscripcion) {
         this.pagoRepository = pagoRepository;
         this.pedidoRepository = pedidoRepository;
+        this.confirmacionSuscripcion = confirmacionSuscripcion;
     }
 
     @Transactional
@@ -58,8 +61,9 @@ public class ConfirmacionPagoService {
 
         PagoPedido pago = pagoRepository.findByReferencia(String.valueOf(transaccion.get("reference"))).orElse(null);
         if (pago == null) {
-            // La pasarela reintenta mientras no reciba 200: una referencia ajena se acepta y se ignora
-            return Resultado.IGNORADO;
+            // No es el pago de un pedido: puede ser la suscripción Prisma Pro de un proveedor (MVP).
+            // Si tampoco lo es, la referencia es ajena: se acepta y se ignora (la pasarela reintenta sin 200).
+            return confirmacionSuscripcion.procesar(transaccion);
         }
         if (pago.getEstado() != EstadoPagoPedido.PENDIENTE) {
             return Resultado.YA_PROCESADO;

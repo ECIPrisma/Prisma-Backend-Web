@@ -176,6 +176,25 @@ $r = Llamar "GET" "/proveedores/pagos/cuenta" $tendero $null
 Verificar "CP-21 El tendero no accede a cuentas de cobro (403)" ($r.Status -eq 403) "HTTP $($r.Status)"
 
 # ------------------------------------------------------------------------------
+Write-Host "`n=== MVP: el proveedor paga su suscripción Prisma Pro ===" -ForegroundColor Cyan
+$r = Llamar "GET" "/proveedores/suscripcion" $proveedor $null
+Verificar "CP-S1 Plan Prisma Pro Distribuidor a `$120.000 con IVA" ($r.Status -eq 200 -and [decimal]$r.Json.datos.precioMensual -eq 120000) "HTTP $($r.Status) precio $($r.Json.datos.precioMensual)"
+$antes = $r.Json.datos.vigenteHasta
+
+$r = Llamar "POST" "/proveedores/suscripcion/pago" $proveedor '{"medio":"PSE","banco":"Banco que rechaza","tipoPersona":"JURIDICA","documento":"8600001231"}'
+Verificar "CP-S2 Pago rechazado: 'El pago no pudo ser procesado, intenta con otro medio'" ($r.Status -eq 200 -and $r.Json.mensaje -eq "El pago no pudo ser procesado, intenta con otro medio") "HTTP $($r.Status) '$($r.Json.mensaje)'"
+
+$r = Llamar "POST" "/proveedores/suscripcion/pago" $proveedor '{"medio":"NEQUI","celular":"3991111111"}'
+Verificar "CP-S3 Pago aprobado y confirmado por webhook" ($r.Status -eq 200 -and $r.Json.datos.estado -eq "APROBADO" -and $r.Json.datos.confirmadoPorWebhook) "HTTP $($r.Status) estado $($r.Json.datos.estado)"
+Write-Host "          Cubre del $($r.Json.datos.periodoDesde) al $($r.Json.datos.periodoHasta) | Ref: $($r.Json.datos.referencia)"
+
+$r = Llamar "GET" "/proveedores/suscripcion" $proveedor $null
+Verificar "CP-S4 La suscripción queda ACTIVA hasta $($r.Json.datos.vigenteHasta) (antes: $antes)" ($r.Json.datos.estado -eq "ACTIVA") "estado $($r.Json.datos.estado)"
+
+$r = Llamar "GET" "/proveedores/suscripcion" $tendero $null
+Verificar "CP-S5 El tendero no accede a la suscripción del proveedor (403)" ($r.Status -eq 403) "HTTP $($r.Status)"
+
+# ------------------------------------------------------------------------------
 if (-not $SinCircuito) {
     Write-Host "`n=== Circuit breaker de la pasarela (HU-19) - tarda cerca de 1 minuto ===" -ForegroundColor Cyan
     $admin = Login "admin@prisma.com.co" "admin123"

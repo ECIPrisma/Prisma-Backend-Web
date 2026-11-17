@@ -85,6 +85,23 @@ public class PushNotificationService {
                 pedido.getId(), pedido.getNumeroPedido(), pedido.getEstado().name());
     }
 
+    /** MVP: el webhook confirmó el pago de la suscripción Prisma Pro del proveedor. */
+    public void notificarSuscripcionPagada(Long proveedorId, String referencia, java.time.LocalDate vigenteHasta) {
+        if (proveedorId == null) {
+            return;
+        }
+        String titulo = "Suscripción Prisma Pro activa";
+        String mensaje = "Recibimos tu pago (" + referencia + "). Tu suscripción está activa hasta el " + vigenteHasta + ".";
+
+        List<Usuario> usuariosProveedor = usuarioRepository.findAll().stream()
+                .filter(u -> u.getProveedor() != null && u.getProveedor().getId().equals(proveedorId))
+                .toList();
+
+        for (Usuario u : usuariosProveedor) {
+            enviarPush(u, titulo, mensaje, "SUSCRIPCION_PAGADA", null, referencia, "APROBADO");
+        }
+    }
+
     public void notificarCambioEstadoTendero(Pedido pedido) {
         if (pedido == null || pedido.getTienda() == null || pedido.getTienda().getTendero() == null) {
             return;
