@@ -1,0 +1,19 @@
+[Unit]
+Description=PRISMA Analytics Engine (Modo Pro - FastAPI + DuckDB)
+After=network.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=juan
+WorkingDirectory=/opt/prisma/analytics-service
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+MemoryMax=300M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
