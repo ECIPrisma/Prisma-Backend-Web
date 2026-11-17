@@ -30,7 +30,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    @Value("${prisma.cors.allowed-origins:http://localhost:5173,http://localhost:3000,https://*.vercel.app,https://prisma-frontend-web.vercel.app,https://eciprisma.duckdns.org,http://eciprisma.duckdns.org,https://*.duckdns.org}")
+    @Value("${prisma.cors.allowed-origins:http://localhost:5173,http://localhost:3000,https://prisma-frontend-web.vercel.app,https://eciprisma.duckdns.org,http://eciprisma.duckdns.org}")
     private String corsAllowedOrigins;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
@@ -87,8 +87,8 @@ public class SecurityConfig {
         if (!origins.contains("http://eciprisma.duckdns.org")) {
             origins.add("http://eciprisma.duckdns.org");
         }
-        if (!origins.contains("https://*.duckdns.org")) {
-            origins.add("https://*.duckdns.org");
+        if (!origins.contains("https://prisma-frontend-web.vercel.app")) {
+            origins.add("https://prisma-frontend-web.vercel.app");
         }
         configuration.setAllowedOriginPatterns(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
