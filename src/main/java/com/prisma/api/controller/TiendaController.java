@@ -8,6 +8,7 @@ import com.prisma.api.entity.Producto;
 import com.prisma.api.entity.Tienda;
 import com.prisma.api.enums.SeveridadAudit;
 import com.prisma.api.security.UserPrincipal;
+import com.prisma.api.service.PagoPedidoService;
 import com.prisma.api.service.TiendaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,9 +26,11 @@ import java.util.Map;
 public class TiendaController {
 
     private final TiendaService tiendaService;
+    private final PagoPedidoService pagoPedidoService;
 
-    public TiendaController(TiendaService tiendaService) {
+    public TiendaController(TiendaService tiendaService, PagoPedidoService pagoPedidoService) {
         this.tiendaService = tiendaService;
+        this.pagoPedidoService = pagoPedidoService;
     }
 
     @GetMapping("/mi-tienda")
@@ -63,6 +66,7 @@ public class TiendaController {
     @Operation(summary = "Consultar historial de pedidos de la tienda")
     public ResponseEntity<ApiResponse<List<Pedido>>> getMisPedidos(@AuthenticationPrincipal UserPrincipal currentUser) {
         List<Pedido> pedidos = tiendaService.getMisPedidos(currentUser);
+        pagoPedidoService.anotarEstadoPago(pedidos);
         return ResponseEntity.ok(ApiResponse.exito("Historial de pedidos", pedidos));
     }
 

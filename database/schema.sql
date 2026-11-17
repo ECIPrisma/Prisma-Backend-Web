@@ -435,5 +435,53 @@ COMMENT ON TABLE refresh_tokens IS 'Refresh tokens opacos para renovar el JWT de
 CREATE INDEX idx_refresh_tokens_usuario_id ON refresh_tokens (usuario_id);
 
 -- ==============================================================================
+-- HU-12 / N-08: Pasarela de pagos SIMULADA (mockup del sandbox de Wompi, sin cobros reales)
+-- ==============================================================================
+CREATE TABLE cuentas_recaudo_proveedor (
+    id BIGSERIAL PRIMARY KEY,
+    proveedor_id BIGINT NOT NULL UNIQUE REFERENCES proveedores(id) ON DELETE CASCADE,
+    pasarela VARCHAR(30) NOT NULL,                   -- 'WOMPI_SANDBOX_SIMULADO'
+    cuenta_externa_id VARCHAR(40) NOT NULL,          -- id de comercio simulado, ej. WMP-SBX-4K8Z2QH1
+    banco VARCHAR(80) NOT NULL,
+    tipo_cuenta VARCHAR(20) NOT NULL CHECK (tipo_cuenta IN ('AHORROS', 'CORRIENTE')),
+    numero_cuenta_ultimos4 VARCHAR(4) NOT NULL,      -- nunca se guarda el número completo
+    titular VARCHAR(120) NOT NULL,
+    modo_produccion BOOLEAN NOT NULL DEFAULT FALSE,
+    vinculada_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE pagos_pedido (
+    id BIGSERIAL PRIMARY KEY,
+    pedido_id BIGINT NOT NULL,
+    numero_pedido VARCHAR(30) NOT NULL,
+    proveedor_id BIGINT NOT NULL,
+    tendero_id BIGINT NOT NULL,
+    nombre_tienda VARCHAR(150),
+    referencia VARCHAR(60) NOT NULL UNIQUE,
+    transaccion_id VARCHAR(40) NOT NULL,             -- id de transacción simulado, ej. SBX-...
+    pasarela VARCHAR(30) NOT NULL,
+    medio VARCHAR(15) NOT NULL CHECK (medio IN ('NEQUI', 'PSE', 'TARJETA')),
+    detalle_medio VARCHAR(80) NOT NULL,              -- enmascarado: 'VISA •••• 4242', 'Nequi ••• 1111'
+    monto NUMERIC(12, 2) NOT NULL CHECK (monto >= 0),
+    comision_prisma NUMERIC(12, 2) NOT NULL CHECK (comision_prisma >= 0),
+    monto_proveedor NUMERIC(12, 2) NOT NULL CHECK (monto_proveedor >= 0),
+    porcentaje_comision NUMERIC(5, 2),               -- HU-13: 3.50 fijo
+    tarifa_pasarela NUMERIC(12, 2),                  -- HU-13: tarifa Wompi, independiente de la comisión
+    estado VARCHAR(15) NOT NULL CHECK (estado IN ('PENDIENTE', 'EN_GARANTIA', 'RECHAZADO', 'LIBERADO', 'REEMBOLSADO')),
+    motivo_rechazo VARCHAR(200),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    confirmado_en TIMESTAMPTZ,                       -- HU-13: cuando llegó el webhook de la pasarela
+    liberado_en TIMESTAMPTZ,
+    reembolsado_en TIMESTAMPTZ,                      -- pedido pagado que se canceló/rechazó antes de la entrega
+    motivo_reembolso VARCHAR(200),
+    CONSTRAINT chk_split_atomico CHECK (comision_prisma + monto_proveedor = monto)
+);
+
+COMMENT ON TABLE pagos_pedido IS 'Pagos en línea simulados. EN_GARANTIA: PRISMA retiene el dinero hasta que la entrega se confirma con PIN (LIBERADO).';
+
+CREATE INDEX idx_pagos_pedido_pedido ON pagos_pedido (pedido_id);
+CREATE INDEX idx_pagos_pedido_proveedor ON pagos_pedido (proveedor_id);
+
+-- ==============================================================================
 -- FIN DEL ESQUEMA DDL PRISMA
 -- ==============================================================================

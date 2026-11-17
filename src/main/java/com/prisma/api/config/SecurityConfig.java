@@ -59,6 +59,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/api/docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
+                        // HU-13: webhook de la pasarela; se autentica con el checksum del evento, no con JWT
+                        .requestMatchers(HttpMethod.POST, "/api/v1/pagos/webhooks/**").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // Rutas protegidas por Rol

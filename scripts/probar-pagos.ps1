@@ -1,0 +1,232 @@
+﻿# ==============================================================================
+# Pruebas de la pasarela de pagos SIMULADA (HU-12 / N-08 / HU-13 / HU-14 / HU-19) contra el backend LOCAL.
+# Requisito: backend corriendo con el perfil dev (H2 en memoria) en http://localhost:8080
+#   .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=dev"
+# Uso (desde la carpeta Prisma-Backend-Web):
+#   powershell -ExecutionPolicy Bypass -File .\scripts\probar-pagos.ps1
+#   (agrega -SinCircuito para saltar la prueba del circuit breaker, que tarda ~1 minuto)
+# ==============================================================================
+param([string]$Base = "http://localhost:8080/api/v1", [switch]$SinCircuito)
+
+$ErrorActionPreference = "Stop"
+$script:ok = 0
+$script:fallos = 0
+
+function Llamar([string]$metodo, [string]$ruta, [string]$token, [string]$cuerpo, [hashtable]$encabezados = @{}) {
+    $params = @{ UseBasicParsing = $true; Method = $metodo; Uri = "$Base$ruta"; ContentType = "application/json; charset=utf-8" }
+    $params.Headers = @{} + $encabezados
+    if ($token) { $params.Headers.Authorization = "Bearer $token" }
+    if ($cuerpo) { $params.Body = [System.Text.Encoding]::UTF8.GetBytes($cuerpo) }
+    try {
+        $r = Invoke-WebRequest @params
+        $texto = [System.Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray())
+        return @{ Status = [int]$r.StatusCode; Json = ($texto | ConvertFrom-Json) }
+    } catch {
+        $resp = $_.Exception.Response
+        if ($null -eq $resp) { throw "No hay conexión con $Base. ¿Está corriendo el backend?" }
+        $lector = New-Object System.IO.StreamReader($resp.GetResponseStream(), [System.Text.Encoding]::UTF8)
+        $texto = $lector.ReadToEnd()
+        $json = $null
+        try { $json = $texto | ConvertFrom-Json } catch { }
+        return @{ Status = [int]$resp.StatusCode; Json = $json }
+    }
+}
+
+function Verificar([string]$caso, [bool]$condicion, [string]$detalle) {
+    if ($condicion) {
+        $script:ok++
+        Write-Host "  [OK]    $caso" -ForegroundColor Green
+    } else {
+        $script:fallos++
+        Write-Host "  [FALLA] $caso -> $detalle" -ForegroundColor Red
+    }
+}
+
+function Login([string]$email, [string]$clave) {
+    $r = Llamar "POST" "/auth/login" $null "{`"email`":`"$email`",`"password`":`"$clave`"}"
+    if ($r.Status -ne 200) { throw "No se pudo iniciar sesión con $email (HTTP $($r.Status))" }
+    return $r.Json.datos.token
+}
+
+function CrearPedido([string]$token) {
+    $r = Llamar "POST" "/tiendas/pedidos" $token '{"proveedorId":1,"items":[]}'
+    if ($r.Status -ne 200) { throw "No se pudo crear el pedido (HTTP $($r.Status))" }
+    return $r.Json.datos
+}
+
+Write-Host "`n=== Iniciando sesión ===" -ForegroundColor Cyan
+$tendero = Login "dona.marta@labendicion.com" "admin123"
+$proveedor = Login "logistica@femsa.com.co" "femsa123"
+$conductor = Login "conductor.juan@femsa.com.co" "admin123"
+Write-Host "  Tendero, proveedor y conductor autenticados"
+
+# ------------------------------------------------------------------------------
+Write-Host "`n=== Checkout del tendero (N-08) ===" -ForegroundColor Cyan
+$pedido = CrearPedido $tendero
+Write-Host "  Pedido creado: $($pedido.numeroPedido) (id $($pedido.id), total $($pedido.totalAPagar), PIN $($pedido.pinEntregaHash))"
+$rutaPago = "/tiendas/pedidos/$($pedido.id)/pago"
+
+$r = Llamar "GET" $rutaPago $tendero $null
+Verificar "CP-01 Pedido nuevo no tiene pagos (404)" ($r.Status -eq 404) "HTTP $($r.Status)"
+
+$r = Llamar "POST" $rutaPago $tendero '{"medio":"NEQUI","celular":"3992222222"}'
+Verificar "CP-02 Nequi 3992222222 es RECHAZADO" ($r.Status -eq 200 -and $r.Json.datos.estado -eq "RECHAZADO") "HTTP $($r.Status) estado $($r.Json.datos.estado)"
+Verificar "CP-02b HU-13: mensaje 'El pago no pudo ser procesado, intenta con otro medio'" ($r.Json.mensaje -eq "El pago no pudo ser procesado, intenta con otro medio") "'$($r.Json.mensaje)'"
+
+$r = Llamar "POST" $rutaPago $tendero '{"medio":"PSE","banco":"Banco que rechaza","tipoPersona":"NATURAL","documento":"1020304050"}'
+Verificar "CP-03 PSE 'Banco que rechaza' es RECHAZADO" ($r.Json.datos.estado -eq "RECHAZADO") "estado $($r.Json.datos.estado)"
+
+$r = Llamar "POST" $rutaPago $tendero '{"medio":"TARJETA","numeroTarjeta":"4111111111111111","titular":"MARTA","vencimiento":"12/30"}'
+Verificar "CP-04 Tarjeta 4111... es RECHAZADA" ($r.Json.datos.estado -eq "RECHAZADO") "estado $($r.Json.datos.estado)"
+
+$r = Llamar "POST" $rutaPago $tendero '{"medio":"TARJETA","numeroTarjeta":"4242424242424241","titular":"MARTA","vencimiento":"12/30"}'
+Verificar "CP-05 Tarjeta con número inválido (Luhn) da 400" ($r.Status -eq 400) "HTTP $($r.Status)"
+
+$r = Llamar "POST" $rutaPago $tendero '{"medio":"TARJETA","numeroTarjeta":"4242424242424242","titular":"MARTA","vencimiento":"01/20"}'
+Verificar "CP-06 Tarjeta vencida da 400" ($r.Status -eq 400) "HTTP $($r.Status)"
+
+$r = Llamar "POST" $rutaPago $tendero '{"medio":"NEQUI","celular":"12345"}'
+Verificar "CP-07 Celular Nequi inválido da 400" ($r.Status -eq 400) "HTTP $($r.Status)"
+
+$r = Llamar "GET" "/tiendas/mis-pedidos" $tendero $null
+$mio = $r.Json.datos | Where-Object { $_.id -eq $pedido.id }
+Verificar "CP-08 Mis Pedidos muestra el pago RECHAZADO (puede reintentar)" ($mio.estadoPago -eq "RECHAZADO") "estadoPago $($mio.estadoPago)"
+Verificar "CP-08b HU-13: tras el rechazo el pedido sigue Confirmado ($($mio.estado))" ($mio.estado -eq "CREADO" -or $mio.estado -eq "ACEPTADO") "estado $($mio.estado)"
+
+$r = Llamar "POST" $rutaPago $tendero '{"medio":"NEQUI","celular":"3991111111"}'
+Verificar "CP-09 Nequi 3991111111 APRUEBA y queda EN_GARANTIA" ($r.Status -eq 200 -and $r.Json.datos.estado -eq "EN_GARANTIA") "HTTP $($r.Status) estado $($r.Json.datos.estado)"
+Write-Host "          Referencia: $($r.Json.datos.referencia) | Transacción: $($r.Json.datos.transaccionId)"
+$p = $r.Json.datos
+$esperadaComision = [math]::Round([decimal]$p.monto * [decimal]0.035, 2, [MidpointRounding]::AwayFromZero)
+Verificar "CP-09b HU-13: comisión PRISMA = 3.5% del total ($($p.comisionPrisma))" ([decimal]$p.comisionPrisma -eq $esperadaComision) "esperado $esperadaComision"
+Verificar "CP-09c HU-13: comisión + proveedor = total (split atómico)" (([decimal]$p.comisionPrisma + [decimal]$p.montoProveedor) -eq [decimal]$p.monto) "$($p.comisionPrisma) + $($p.montoProveedor) <> $($p.monto)"
+Verificar "CP-09d HU-13: confirmado por webhook, tarifa Wompi aparte ($($p.tarifaPasarela))" ($p.confirmadoPorWebhook -eq $true -and [decimal]$p.tarifaPasarela -gt 0) "confirmadoPorWebhook $($p.confirmadoPorWebhook)"
+
+$r = Llamar "POST" $rutaPago $tendero '{"medio":"NEQUI","celular":"3991111111"}'
+Verificar "CP-10 No se puede pagar dos veces (409)" ($r.Status -eq 409) "HTTP $($r.Status)"
+
+$r = Llamar "GET" "/tiendas/mis-pedidos" $tendero $null
+$mio = $r.Json.datos | Where-Object { $_.id -eq $pedido.id }
+Verificar "CP-11 Mis Pedidos muestra EN_GARANTIA con medio NEQUI" ($mio.estadoPago -eq "EN_GARANTIA" -and $mio.medioPagoEnLinea -eq "NEQUI") "estadoPago $($mio.estadoPago)"
+
+$r = Llamar "POST" $rutaPago $proveedor '{"medio":"NEQUI","celular":"3991111111"}'
+Verificar "CP-12 Un proveedor no puede pagar pedidos de tenderos (403)" ($r.Status -eq 403) "HTTP $($r.Status)"
+
+# ------------------------------------------------------------------------------
+Write-Host "`n=== Garantía y liberación al entregar ===" -ForegroundColor Cyan
+$r = Llamar "GET" "/proveedores/pagos/recaudos" $proveedor $null
+$pagoProv = $r.Json.datos.pagos | Where-Object { $_.pedidoId -eq $pedido.id }
+Verificar "CP-13 El proveedor ve el pago EN_GARANTIA" ($pagoProv.estado -eq "EN_GARANTIA") "estado $($pagoProv.estado)"
+Write-Host "          Pagado $($pagoProv.monto) | Comisión PRISMA $($pagoProv.comisionPrisma) | Recibe $($pagoProv.montoProveedor)"
+
+$r = Llamar "POST" "/repartidores/pedidos/$($pedido.id)/confirmar-entrega" $conductor "{`"pin`":`"$($pedido.pinEntregaHash)`",`"medioPago`":`"EFECTIVO`"}"
+Verificar "CP-14 El conductor confirma la entrega con el PIN y el pago queda LIBERADO" ($r.Status -eq 200 -and $r.Json.datos.estadoPago -eq "LIBERADO") "HTTP $($r.Status) estadoPago $($r.Json.datos.estadoPago)"
+
+$r = Llamar "GET" "/proveedores/pagos/recaudos" $proveedor $null
+$pagoProv = $r.Json.datos.pagos | Where-Object { $_.pedidoId -eq $pedido.id }
+Verificar "CP-15 El proveedor ve el pago LIBERADO" ($pagoProv.estado -eq "LIBERADO") "estado $($pagoProv.estado)"
+
+$otro = CrearPedido $tendero
+$r = Llamar "POST" "/tiendas/pedidos/$($otro.id)/pago" $tendero '{"medio":"TARJETA","numeroTarjeta":"4242 4242 4242 4242","titular":"MARTA RODRIGUEZ","vencimiento":"12/30","cuotas":3}'
+Verificar "CP-16 Tarjeta 4242... APRUEBA (segundo pedido $($otro.numeroPedido))" ($r.Json.datos.estado -eq "EN_GARANTIA") "estado $($r.Json.datos.estado)"
+
+# ------------------------------------------------------------------------------
+Write-Host "`n=== Webhook de la pasarela: firma HMAC-SHA256 del encabezado (HU-14) ===" -ForegroundColor Cyan
+# Secreto de pruebas por defecto del backend (prisma.pagos.wompi.events-secret)
+$SecretoEventos = "test_events_prisma_simulado"
+function FirmarHmac([string]$cuerpo, [string]$secreto, [long]$t) {
+    $hmac = New-Object System.Security.Cryptography.HMACSHA256 (,[System.Text.Encoding]::UTF8.GetBytes($secreto))
+    $hash = $hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes("$t.$cuerpo"))
+    return "t=$t,v1=" + (($hash | ForEach-Object { $_.ToString("x2") }) -join "")
+}
+$ahora = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$evento = '{"event":"transaction.updated","data":{"transaction":{"id":"SBX-SCRIPT","reference":"REFERENCIA-INEXISTENTE","status":"APPROVED","amount_in_cents":100}}}'
+
+$r = Llamar "POST" "/pagos/webhooks/wompi" $null $evento
+Verificar "CP-W1 Webhook sin encabezado de firma se rechaza (401)" ($r.Status -eq 401) "HTTP $($r.Status)"
+
+$r = Llamar "POST" "/pagos/webhooks/wompi" $null $evento @{ "X-Wompi-Signature" = (FirmarHmac $evento "secreto_de_un_atacante" $ahora) }
+Verificar "CP-W2 Webhook firmado con otro secreto se rechaza (401)" ($r.Status -eq 401) "HTTP $($r.Status)"
+
+$r = Llamar "POST" "/pagos/webhooks/wompi" $null $evento @{ "X-Wompi-Signature" = (FirmarHmac $evento $SecretoEventos ($ahora - 3600)) }
+Verificar "CP-W3 Webhook con firma vencida (reenvío) se rechaza (401)" ($r.Status -eq 401) "HTTP $($r.Status)"
+
+$r = Llamar "POST" "/pagos/webhooks/wompi" $null $evento @{ "X-Wompi-Signature" = (FirmarHmac $evento $SecretoEventos $ahora) }
+Verificar "CP-W4 Webhook con HMAC válido se acepta (200; referencia ajena -> IGNORADO)" ($r.Status -eq 200 -and $r.Json.datos.resultado -eq "IGNORADO") "HTTP $($r.Status) $($r.Json.datos.resultado)"
+Write-Host "          Los rechazos quedan en audit_logs (tipo WEBHOOK_PAGO_FIRMA_INVALIDA) y en el log 'SEGURIDAD' del backend" -ForegroundColor DarkGray
+
+# ------------------------------------------------------------------------------
+Write-Host "`n=== Cuenta de cobro del proveedor (HU-12) ===" -ForegroundColor Cyan
+$null = Llamar "DELETE" "/proveedores/pagos/cuenta" $proveedor $null   # deja el estado limpio si ya estaba vinculada
+
+$r = Llamar "GET" "/proveedores/pagos/cuenta" $proveedor $null
+Verificar "CP-17 Sin cuenta vinculada" ($r.Json.datos.vinculada -eq $false) "vinculada $($r.Json.datos.vinculada)"
+Verificar "CP-17b HU-13: el proveedor recibe 96.5% (comisión fija 3.5%)" ([decimal]$r.Json.datos.porcentajeProveedor -eq 96.5) "porcentaje $($r.Json.datos.porcentajeProveedor)"
+
+$r = Llamar "POST" "/proveedores/pagos/cuenta" $proveedor '{"banco":"Bancolombia","tipoCuenta":"AHORROS","numeroCuenta":"1234560000","titular":"FEMSA Colombia"}'
+Verificar "CP-18 Cuenta terminada en 0000: rechazo con el mensaje de la HU" ($r.Status -eq 400 -and $r.Json.mensaje -eq "No se pudo vincular tu cuenta de cobro, intenta nuevamente") "HTTP $($r.Status) '$($r.Json.mensaje)'"
+
+$r = Llamar "POST" "/proveedores/pagos/cuenta" $proveedor '{"banco":"Bancolombia","tipoCuenta":"AHORROS","numeroCuenta":"12345678912","titular":"FEMSA Colombia"}'
+Verificar "CP-19 Vinculación exitosa, solo últimos 4 dígitos" ($r.Status -eq 200 -and $r.Json.datos.vinculada -and $r.Json.datos.numeroCuentaEnmascarado -like "*8912") "HTTP $($r.Status)"
+
+$r = Llamar "POST" "/proveedores/pagos/cuenta" $proveedor '{"banco":"Davivienda","tipoCuenta":"CORRIENTE","numeroCuenta":"99998888","titular":"FEMSA"}'
+Verificar "CP-20 No se vinculan dos cuentas (409)" ($r.Status -eq 409) "HTTP $($r.Status)"
+
+$r = Llamar "GET" "/proveedores/pagos/cuenta" $tendero $null
+Verificar "CP-21 El tendero no accede a cuentas de cobro (403)" ($r.Status -eq 403) "HTTP $($r.Status)"
+
+# ------------------------------------------------------------------------------
+if (-not $SinCircuito) {
+    Write-Host "`n=== Circuit breaker de la pasarela (HU-19) - tarda cerca de 1 minuto ===" -ForegroundColor Cyan
+    $admin = Login "admin@prisma.com.co" "admin123"
+    $null = Llamar "POST" "/admin/pagos/circuito/reiniciar" $admin $null   # empezar con el circuito cerrado
+
+    $pedidoCB = CrearPedido $tendero
+    $rutaCB = "/tiendas/pedidos/$($pedidoCB.id)/pago"
+    $caida = '{"medio":"NEQUI","celular":"3993333333"}'
+    $aprueba = '{"medio":"NEQUI","celular":"3991111111"}'
+
+    Write-Host "  Simulando la pasarela caída (cada intento tarda ~2 s, como un timeout)..."
+    $abierto = $false
+    for ($i = 1; $i -le 10 -and -not $abierto; $i++) {
+        $r = Llamar "POST" $rutaCB $tendero $caida
+        $estado = (Llamar "GET" "/admin/pagos/circuito" $admin $null).Json.datos.estado
+        Write-Host "          Intento $i -> HTTP $($r.Status), circuito $estado"
+        $abierto = ($estado -eq "OPEN")
+    }
+    Verificar "CP-CB1 Tras superar el umbral de errores el circuito se ABRE" $abierto "el circuito no se abrió"
+
+    $reloj = [System.Diagnostics.Stopwatch]::StartNew()
+    $r = Llamar "POST" $rutaCB $tendero $aprueba
+    $reloj.Stop()
+    Verificar "CP-CB2 Con el circuito abierto: 503 'Servicio de pagos temporalmente no disponible'" ($r.Status -eq 503 -and $r.Json.mensaje -eq "Servicio de pagos temporalmente no disponible") "HTTP $($r.Status) '$($r.Json.mensaje)'"
+    Verificar "CP-CB3 Responde de inmediato, sin esperar el timeout ($($reloj.ElapsedMilliseconds) ms)" ($reloj.ElapsedMilliseconds -lt 1500) "$($reloj.ElapsedMilliseconds) ms"
+    $r = Llamar "GET" $rutaCB $tendero $null
+    Verificar "CP-CB4 El pedido no cambió: no se creó ningún pago (404)" ($r.Status -eq 404) "HTTP $($r.Status)"
+
+    $espera = [int](Llamar "GET" "/admin/pagos/circuito" $admin $null).Json.datos.esperaAbiertoSegundos
+    if ($espera -le 0) { $espera = 30 }
+    Write-Host "  Esperando $($espera + 2) s (tiempo configurado con el circuito abierto)..."
+    Start-Sleep -Seconds ($espera + 2)
+
+    # Half-open: llamadas de prueba exitosas (cada una en un pedido nuevo para que no esté ya pagado)
+    $pruebas = [int](Llamar "GET" "/admin/pagos/circuito" $admin $null).Json.datos.llamadasPruebaSemiabierto
+    if ($pruebas -le 0) { $pruebas = 2 }
+    $todasOk = $true
+    for ($i = 1; $i -le $pruebas; $i++) {
+        $p = CrearPedido $tendero
+        $r = Llamar "POST" "/tiendas/pedidos/$($p.id)/pago" $tendero $aprueba
+        Write-Host "          Llamada de prueba $i -> HTTP $($r.Status) $($r.Json.datos.estado)"
+        if ($r.Status -ne 200) { $todasOk = $false }
+    }
+    $estado = (Llamar "GET" "/admin/pagos/circuito" $admin $null).Json.datos.estado
+    Verificar "CP-CB5 Half-open: las llamadas de prueba exitosas CIERRAN el circuito" ($todasOk -and $estado -eq "CLOSED") "estado $estado"
+
+    $r = Llamar "POST" $rutaCB $tendero $aprueba
+    Verificar "CP-CB6 Los pagos vuelven a procesarse con normalidad" ($r.Status -eq 200 -and $r.Json.datos.estado -eq "EN_GARANTIA") "HTTP $($r.Status)"
+}
+
+# ------------------------------------------------------------------------------
+$color = if ($script:fallos -eq 0) { "Green" } else { "Red" }
+Write-Host "`nResultado: $($script:ok) OK, $($script:fallos) con falla`n" -ForegroundColor $color
+Write-Host "Nota: la cuenta de cobro de FEMSA quedó VINCULADA para que la veas en la web." -ForegroundColor DarkGray
