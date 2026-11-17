@@ -1,54 +1,94 @@
 """
-Gestor de persistencia analítica OLAP con DuckDB y particiones Parquet.
+Gestor de persistencia analítica OLAP híbrido (DuckDB + Parquet con fallback SQLite3 para CPUs sin AVX).
 (HU-27 / SCRUM-39 y HU-29 / SCRUM-41).
 """
 
-import duckdb
 import os
+import sqlite3
 import pandas as pd
 from typing import List, Dict, Any
 
+DUCKDB_AVAILABLE = False
+try:
+    import duckdb
+    # Verificar que duckdb no falle en runtime por falta de soporte AVX
+    _test_conn = duckdb.connect(":memory:")
+    _test_conn.execute("SELECT 1").fetchone()
+    _test_conn.close()
+    DUCKDB_AVAILABLE = True
+except Exception:
+    DUCKDB_AVAILABLE = False
+
 DB_PATH = os.environ.get("DUCKDB_PATH", "prisma_analytics.duckdb")
+SQLITE_DB_PATH = os.environ.get("SQLITE_PATH", "prisma_analytics.sqlite")
 PARQUET_DIR = os.environ.get("PARQUET_DIR", "data/parquet")
 
 class AnalyticsDatabase:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
-        self._conn = None
+        self.is_duckdb = DUCKDB_AVAILABLE
+        self._duckdb_conn = None
+        self._sqlite_conn = None
         self.init_database()
 
     def get_connection(self):
-        if self._conn is None:
-            self._conn = duckdb.connect(self.db_path)
-        return self._conn
+        if self.is_duckdb:
+            if self._duckdb_conn is None:
+                self._duckdb_conn = duckdb.connect(self.db_path)
+            return self._duckdb_conn
+        else:
+            if self._sqlite_conn is None:
+                self._sqlite_conn = sqlite3.connect(SQLITE_DB_PATH, check_same_thread=False)
+            return self._sqlite_conn
 
     def init_database(self):
         os.makedirs(PARQUET_DIR, exist_ok=True)
         conn = self.get_connection()
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS ventas_olap (
-                pedido_id BIGINT,
-                tienda_id BIGINT,
-                proveedor_id BIGINT,
-                producto_id BIGINT,
-                nombre_producto VARCHAR,
-                categoria VARCHAR,
-                cantidad INT,
-                precio_unitario DOUBLE,
-                total DOUBLE,
-                zona VARCHAR,
-                fecha_pedido TIMESTAMP
-            );
-        """)
-        # Cargar datos semilla sintéticos si la tabla está vacía
-        count = conn.execute("SELECT COUNT(*) FROM ventas_olap").fetchone()[0]
-        if count == 0:
-            self._cargar_semilla_analitica()
+        if self.is_duckdb:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS ventas_olap (
+                    pedido_id BIGINT,
+                    tienda_id BIGINT,
+                    proveedor_id BIGINT,
+                    producto_id BIGINT,
+                    nombre_producto VARCHAR,
+                    categoria VARCHAR,
+                    cantidad INT,
+                    precio_unitario DOUBLE,
+                    total DOUBLE,
+                    zona VARCHAR,
+                    fecha_pedido TIMESTAMP
+                );
+            """)
+            count = conn.execute("SELECT COUNT(*) FROM ventas_olap").fetchone()[0]
+            if count == 0:
+                self._cargar_semilla_analitica()
+        else:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ventas_olap (
+                    pedido_id INTEGER,
+                    tienda_id INTEGER,
+                    proveedor_id INTEGER,
+                    producto_id INTEGER,
+                    nombre_producto TEXT,
+                    categoria TEXT,
+                    cantidad INTEGER,
+                    precio_unitario REAL,
+                    total REAL,
+                    zona TEXT,
+                    fecha_pedido TEXT
+                );
+            """)
+            conn.commit()
+            cursor.execute("SELECT COUNT(*) FROM ventas_olap")
+            count = cursor.fetchone()[0]
+            if count == 0:
+                self._cargar_semilla_analitica()
 
     def _cargar_semilla_analitica(self):
         conn = self.get_connection()
-        conn.execute("""
-            INSERT INTO ventas_olap VALUES
+        seed_data = [
             (101, 1, 1, 10, 'Coca-Cola 1.5L', 'Bebidas', 24, 4500.0, 108000.0, 'Norte', '2026-11-01 10:00:00'),
             (101, 1, 1, 11, 'Papas Fritas 150g', 'Snacks', 30, 2500.0, 75000.0, 'Norte', '2026-11-01 10:00:00'),
             (102, 2, 1, 10, 'Coca-Cola 1.5L', 'Bebidas', 18, 4800.0, 86400.0, 'Centro', '2026-11-02 11:30:00'),
@@ -58,26 +98,47 @@ class AnalyticsDatabase:
             (104, 1, 1, 10, 'Coca-Cola 1.5L', 'Bebidas', 12, 5000.0, 60000.0, 'Norte', '2026-11-04 14:00:00'),
             (104, 1, 1, 12, 'Galletas Chocolate', 'Snacks', 20, 1900.0, 38000.0, 'Norte', '2026-11-04 14:00:00'),
             (105, 4, 1, 10, 'Coca-Cola 1.5L', 'Bebidas', 48, 4000.0, 192000.0, 'Occidente', '2026-11-05 16:20:00'),
-            (105, 4, 1, 11, 'Papas Fritas 150g', 'Snacks', 50, 2300.0, 115000.0, 'Occidente', '2026-11-05 16:20:00');
-        """)
-        self.exportar_a_parquet()
+            (105, 4, 1, 11, 'Papas Fritas 150g', 'Snacks', 50, 2300.0, 115000.0, 'Occidente', '2026-11-05 16:20:00')
+        ]
+        if self.is_duckdb:
+            conn.executemany("INSERT INTO ventas_olap VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", seed_data)
+            self.exportar_a_parquet()
+        else:
+            cursor = conn.cursor()
+            cursor.executemany("INSERT INTO ventas_olap VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", seed_data)
+            conn.commit()
 
     def exportar_a_parquet(self, output_dir: str = PARQUET_DIR):
         """Exporta la tabla OLAP a particiones Parquet para lectura columnar acelerada (SCRUM-41)"""
         conn = self.get_connection()
         os.makedirs(output_dir, exist_ok=True)
         parquet_file = os.path.join(output_dir, "ventas_consolidadas.parquet")
-        conn.execute(f"COPY ventas_olap TO '{parquet_file}' (FORMAT PARQUET);")
+        if self.is_duckdb:
+            conn.execute(f"COPY ventas_olap TO '{parquet_file}' (FORMAT PARQUET);")
+        else:
+            df = pd.read_sql("SELECT * FROM ventas_olap", conn)
+            df.to_csv(parquet_file, index=False)
         return parquet_file
 
-    def consultar_parquet(self, parquet_file: str = None) -> List[Dict[str, Any]]:
-        """Lee directamente desde archivos Parquet usando DuckDB (SCRUM-41)"""
+    def query_df(self, sql: str, params: list = None) -> pd.DataFrame:
+        """Ejecuta una consulta SQL y retorna un DataFrame de Pandas de manera agnóstica al motor."""
         conn = self.get_connection()
-        if parquet_file is None:
-            parquet_file = os.path.join(PARQUET_DIR, "ventas_consolidadas.parquet")
-        if not os.path.exists(parquet_file):
-            self.exportar_a_parquet()
-        df = conn.execute(f"SELECT * FROM read_parquet('{parquet_file}')").df()
-        return df.to_dict(orient="records")
+        if params:
+            return pd.read_sql(sql, conn, params=params)
+        return pd.read_sql(sql, conn)
+
+    def consultar_parquet(self, parquet_file: str = None) -> List[Dict[str, Any]]:
+        """Lee directamente desde archivos Parquet o almacenamiento columnar (SCRUM-41)"""
+        conn = self.get_connection()
+        if self.is_duckdb:
+            if parquet_file is None:
+                parquet_file = os.path.join(PARQUET_DIR, "ventas_consolidadas.parquet")
+            if not os.path.exists(parquet_file):
+                self.exportar_a_parquet()
+            df = conn.execute(f"SELECT * FROM read_parquet('{parquet_file}')").df()
+            return df.to_dict(orient="records")
+        else:
+            df = pd.read_sql("SELECT * FROM ventas_olap", conn)
+            return df.to_dict(orient="records")
 
 db = AnalyticsDatabase()

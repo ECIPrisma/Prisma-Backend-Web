@@ -53,11 +53,12 @@ def health_check():
 
 @app.get("/api/v1/analytics/status")
 def analytics_status():
-    """Retorna el estado de la base de datos DuckDB y tablas OLAP cargadas."""
-    conn = db.get_connection()
-    count = conn.execute("SELECT COUNT(*) FROM ventas_olap").fetchone()[0]
+    """Retorna el estado de la base de datos analítica y tablas OLAP cargadas."""
+    df = db.query_df("SELECT COUNT(*) AS total FROM ventas_olap")
+    count = int(df["total"].iloc[0])
     return {
-        "duckdb_connected": True,
+        "engine_connected": True,
+        "is_duckdb": db.is_duckdb,
         "total_registros_olap": count,
         "parquet_export_available": os.path.exists("data/parquet/ventas_consolidadas.parquet")
     }
@@ -88,12 +89,11 @@ def prescribir_descuentos(
     """
     Calcula la elasticidad precio-demanda por zona y prescribe escalas óptimas de descuento. (SCRUM-43)
     """
-    conn = db.get_connection()
-    df = conn.execute("""
+    df = db.query_df("""
         SELECT precio_unitario, cantidad 
         FROM ventas_olap 
         WHERE producto_id = ?
-    """, [producto_id]).df()
+    """, [producto_id])
 
     if len(df) < 2:
         precios = [4200.0, 4500.0, 4800.0, 5000.0]
@@ -113,14 +113,12 @@ def prescribir_empaques(
     """
     Ejecuta minería de canasta de mercado (FP-Growth) y prescribe nuevos formatos de empaque. (SCRUM-44)
     """
-    conn = db.get_connection()
-    # Agrupar items por pedido para formar transacciones
-    df = conn.execute("""
+    df = db.query_df("""
         SELECT pedido_id, nombre_producto 
         FROM ventas_olap 
         WHERE proveedor_id = ?
         ORDER BY pedido_id
-    """, [proveedor_id]).df()
+    """, [proveedor_id])
 
     if len(df) == 0:
         transacciones = [
