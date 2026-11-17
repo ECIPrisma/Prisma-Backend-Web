@@ -30,7 +30,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    @Value("${prisma.cors.allowed-origins:http://localhost:5173,http://localhost:3000,https://*.vercel.app,https://prisma-frontend-web.vercel.app}")
+    @Value("${prisma.cors.allowed-origins:http://localhost:5173,http://localhost:3000,https://*.vercel.app,https://prisma-frontend-web.vercel.app,https://eciprisma.duckdns.org,http://eciprisma.duckdns.org,https://*.duckdns.org}")
     private String corsAllowedOrigins;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
