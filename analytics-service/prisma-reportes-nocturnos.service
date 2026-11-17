@@ -1,0 +1,9 @@
+[Unit]
+Description=PRISMA Modo Pro - Generacion nocturna de recomendaciones narrativas (HU-17)
+After=prisma-analytics.service
+Requires=prisma-analytics.service
+
+[Service]
+Type=oneshot
+# Llama al motor analitico local; si la IA (Gemini) falla, el motor guarda el respaldo por plantilla (N-12)
+ExecStart=/usr/bin/curl -fsS -X POST "http://127.0.0.1:8000/api/v1/analytics/modo-pro/recomendaciones/generar?proveedor_id=1"
