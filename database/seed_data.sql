@@ -4,7 +4,7 @@
 
 -- 1. Configuraciones Globales del Sistema en Caliente
 INSERT INTO configuracion_sistema (clave, valor, tipo_dato, descripcion, categoria, es_sensible) VALUES
-('comision_base_porcentaje', '2.50', 'NUMERIC', 'Porcentaje estándar de intermediación cobrado quincenalmente a proveedores', 'FINANZAS', false),
+('comision_base_porcentaje', '3.50', 'NUMERIC', 'Porcentaje estándar de intermediación cobrado quincenalmente a proveedores', 'FINANZAS', false),
 ('radio_alerta_gps_metros', '500', 'INTEGER', 'Radio en metros para notificar a la tienda que el camión está próximo', 'LOGISTICA', false),
 ('frecuencia_ping_gps_segundos', '35', 'INTEGER', 'Frecuencia de envío de telemetría GPS desde la app del repartidor', 'LOGISTICA', false),
 ('tiempo_expiracion_pedido_horas', '24', 'INTEGER', 'Tiempo máximo para que un proveedor acepte un pedido antes de anulación', 'OPERACIONES', false),
@@ -13,8 +13,8 @@ INSERT INTO configuracion_sistema (clave, valor, tipo_dato, descripcion, categor
 
 -- 2. Proveedores CPG (Marcas Mayoristas)
 INSERT INTO proveedores (nit, razon_social, nombre_comercial, contacto_nombre, contacto_email, contacto_telefono, direccion_sede, ciudad, color_primario_hex, color_secundario_hex, comision_porcentaje, estado) VALUES
-('860005224-1', 'Industria Nacional de Gaseosas S.A.S.', 'Coca-Cola FEMSA', 'Carlos Mendoza', 'distribucion.femsa@cocacola.com.co', '+573102223344', 'Av. Boyacá # 34-80', 'Bogotá', '#E11D48', '#1E6F68', 2.50, 'ACTIVO'),
-('890903939-5', 'Postobón S.A.', 'Postobón Central', 'Mariana Gómez', 'operaciones.bogota@postobon.com.co', '+573155556677', 'Zona Industrial Montevideo Cl 19 # 68-50', 'Bogotá', '#F59E0B', '#1E6F68', 2.50, 'ACTIVO');
+('860005224-1', 'Industria Nacional de Gaseosas S.A.S.', 'Coca-Cola FEMSA', 'Carlos Mendoza', 'distribucion.femsa@cocacola.com.co', '+573102223344', 'Av. Boyacá # 34-80', 'Bogotá', '#E11D48', '#1E6F68', 3.50, 'ACTIVO'),
+('890903939-5', 'Postobón S.A.', 'Postobón Central', 'Mariana Gómez', 'operaciones.bogota@postobon.com.co', '+573155556677', 'Zona Industrial Montevideo Cl 19 # 68-50', 'Bogotá', '#F59E0B', '#1E6F68', 3.50, 'ACTIVO');
 
 -- 3. Usuarios de Sistema (Password genérico bcrypt para dev: 'Prisma2026*')
 INSERT INTO usuarios (email, password_hash, nombre_completo, telefono, rol, proveedor_id, estado) VALUES
