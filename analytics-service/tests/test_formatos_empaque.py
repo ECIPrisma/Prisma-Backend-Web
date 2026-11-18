@@ -98,7 +98,10 @@ class TestFormatosEmpaqueHU31(unittest.TestCase):
         fraccionado, institucional = p["formatos_sugeridos"]
         self.assertEqual(fraccionado["nombre"], "Postobón Manzana 1.25L")
         self.assertLess(fraccionado["precio_estimado"], p["presentacion_rechazada"]["precio_promedio"])
-        self.assertEqual(institucional["unidades"], 7)  # 7 x 400ml cubren los 2.5L
+        # Ambos formatos son más accesibles que la presentación rechazada
+        self.assertEqual(institucional["unidades"], 6)  # 6 x 400ml = 2.4L, sin superar los 2.5L
+        self.assertLessEqual(institucional["precio_estimado"], p["presentacion_rechazada"]["precio_promedio"])
+        self.assertLess(institucional["precio_por_unidad"], p["presentacion_aceptada"]["precio_promedio"])
         self.assertIsNone(r["mensaje"])
 
     def test_criterio2_compras_en_ambas_presentaciones_no_prescriben(self):

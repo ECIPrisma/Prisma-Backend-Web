@@ -81,8 +81,11 @@ def _formato_fraccionado(referencia: str, pequena: Dict, grande: Dict) -> Dict[s
 
 
 def _formato_institucional(pequena: Dict, grande: Dict) -> Dict[str, Any]:
-    """Caja de N presentaciones pequeñas que equivale a la grande, al precio por unidad de la grande."""
-    unidades = max(2, math.ceil(grande["tamano"] / pequena["tamano"]))
+    """
+    Caja de N presentaciones pequeñas, sin superar el contenido de la grande (para que el desembolso no sea mayor),
+    al precio por unidad de medida de la grande: cada unidad le sale al tendero más barata que comprarla suelta.
+    """
+    unidades = max(2, math.floor(grande["tamano"] / pequena["tamano"]))
     precio_caja = round(grande["precio_unitario_base"] * pequena["tamano"] * unidades, -1)
     return {
         "tipo": "FORMATO_INSTITUCIONAL",
@@ -90,9 +93,10 @@ def _formato_institucional(pequena: Dict, grande: Dict) -> Dict[str, Any]:
         "unidades": unidades,
         "precio_estimado": precio_caja,
         "precio_por_unidad": round(precio_caja / unidades, -1),
+        "ticket_vs_presentacion_grande_pct": round(precio_caja / grande["precio_promedio"] * 100, 1),
         "descripcion": (f"Despachar {unidades} unidades de {pequena['nombre']} como un solo formato, al precio por "
-                        f"{grande['unidad']} de la presentación grande: el tendero puede venderlas sueltas y "
-                        f"rotarlas más rápido que una sola unidad de alto valor."),
+                        f"{grande['unidad']} de la presentación grande: cada unidad le sale al tendero más barata que "
+                        f"suelta y puede venderlas por separado, rotándolas más rápido que una unidad de alto valor."),
     }
 
 
