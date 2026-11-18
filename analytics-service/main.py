@@ -12,7 +12,11 @@ import time
 from typing import Optional, List
 
 from database import db
-from models.elasticity import calcular_elasticidad_y_prescribir_descuento
+from models.elasticity import (
+    calcular_elasticidad_y_prescribir_descuento,
+    seleccionar_serie_por_zona,
+    productos_afines,
+)
 from models.basket_analysis import calcular_reglas_asociacion_y_empaques
 
 app = FastAPI(
@@ -84,26 +88,46 @@ def sync_olap_parquet():
 @app.get("/api/v1/analytics/prescripcion/descuentos")
 def prescribir_descuentos(
     producto_id: int = Query(10, description="ID del producto a evaluar"),
-    zona: str = Query("Norte", description="Zona comercial del análisis")
+    zona: str = Query("Norte", description="Zona comercial del análisis"),
+    costo_unitario: Optional[float] = Query(None, gt=0, description="Costo unitario del proveedor. Si no se envía, se asume el 50% del precio promedio")
 ):
     """
-    Calcula la elasticidad precio-demanda por zona y prescribe escalas óptimas de descuento. (SCRUM-43)
+    HU-30 (SCRUM-43): calcula la elasticidad precio-demanda del producto EN LA ZONA (regresión log-log) y prescribe:
+    - demanda elástica: descuento por escala en unidades bonificadas que no sacrifica margen;
+    - demanda inelástica: bloquea el descuento directo y prescribe exhibidores o paquetes cruzados (bundles).
     """
-    df = db.query_df("""
-        SELECT precio_unitario, cantidad 
-        FROM ventas_olap 
+    filas = db.query_df("""
+        SELECT pedido_id, producto_id, nombre_producto, precio_unitario, cantidad, zona
+        FROM ventas_olap
         WHERE producto_id = ?
-    """, [producto_id])
+    """, [producto_id]).to_dict(orient="records")
 
-    if len(df) < 2:
+    precios, cantidades, alcance = seleccionar_serie_por_zona(filas, zona)
+    datos_simulados = len(set(precios)) < 2
+    if datos_simulados:
+        # Sin historial suficiente: serie de demostración (comportamiento previo del endpoint)
         precios = [4200.0, 4500.0, 4800.0, 5000.0]
         cantidades = [36.0, 24.0, 18.0, 12.0]
-    else:
-        precios = df["precio_unitario"].tolist()
-        cantidades = df["cantidad"].tolist()
+        alcance = "DEMOSTRACION"
 
-    resultado = calcular_elasticidad_y_prescribir_descuento(precios, cantidades, costo_unitario=2200.0, zona=zona)
+    nombre_producto = filas[0]["nombre_producto"] if filas else f"Producto {producto_id}"
+
+    # Productos que se piden junto con este (base de los paquetes cruzados)
+    pedidos_relacionados = db.query_df("""
+        SELECT pedido_id, producto_id, nombre_producto, zona
+        FROM ventas_olap
+        WHERE pedido_id IN (SELECT pedido_id FROM ventas_olap WHERE producto_id = ?)
+    """, [producto_id]).to_dict(orient="records")
+    relacionados = productos_afines(pedidos_relacionados, producto_id, zona)
+
+    costo = costo_unitario if costo_unitario is not None else round(sum(precios) / len(precios) * 0.5, 2)
+
+    resultado = calcular_elasticidad_y_prescribir_descuento(
+        precios, cantidades, costo_unitario=costo, zona=zona,
+        nombre_producto=nombre_producto, productos_relacionados=relacionados)
     resultado["producto_id"] = producto_id
+    resultado["alcance_datos"] = alcance
+    resultado["datos_simulados"] = datos_simulados
     return resultado
 
 @app.get("/api/v1/analytics/prescripcion/empaques")

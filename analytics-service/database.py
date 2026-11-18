@@ -98,7 +98,15 @@ class AnalyticsDatabase:
             (104, 1, 1, 10, 'Coca-Cola 1.5L', 'Bebidas', 12, 5000.0, 60000.0, 'Norte', '2026-11-04 14:00:00'),
             (104, 1, 1, 12, 'Galletas Chocolate', 'Snacks', 20, 1900.0, 38000.0, 'Norte', '2026-11-04 14:00:00'),
             (105, 4, 1, 10, 'Coca-Cola 1.5L', 'Bebidas', 48, 4000.0, 192000.0, 'Occidente', '2026-11-05 16:20:00'),
-            (105, 4, 1, 11, 'Papas Fritas 150g', 'Snacks', 50, 2300.0, 115000.0, 'Occidente', '2026-11-05 16:20:00')
+            (105, 4, 1, 11, 'Papas Fritas 150g', 'Snacks', 50, 2300.0, 115000.0, 'Occidente', '2026-11-05 16:20:00'),
+            # HU-30: producto de canasta básica con demanda inelástica en la zona Norte (el volumen casi no cambia
+            # con el precio) y el producto con el que se suele pedir, para prescribir exhibidores y bundles.
+            (106, 1, 1, 13, 'Arroz Blanco 500g', 'Granos', 40, 2800.0, 112000.0, 'Norte', '2026-11-06 09:00:00'),
+            (106, 1, 1, 14, 'Aceite Vegetal 1L', 'Despensa', 12, 9500.0, 114000.0, 'Norte', '2026-11-06 09:00:00'),
+            (107, 5, 1, 13, 'Arroz Blanco 500g', 'Granos', 39, 3000.0, 117000.0, 'Norte', '2026-11-07 10:30:00'),
+            (107, 5, 1, 14, 'Aceite Vegetal 1L', 'Despensa', 10, 9800.0, 98000.0, 'Norte', '2026-11-07 10:30:00'),
+            (108, 1, 1, 13, 'Arroz Blanco 500g', 'Granos', 37, 3200.0, 118400.0, 'Norte', '2026-11-08 08:45:00'),
+            (108, 1, 1, 11, 'Papas Fritas 150g', 'Snacks', 20, 2500.0, 50000.0, 'Norte', '2026-11-08 08:45:00')
         ]
         if self.is_duckdb:
             conn.executemany("INSERT INTO ventas_olap VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", seed_data)
