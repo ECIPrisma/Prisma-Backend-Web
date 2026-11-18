@@ -1,0 +1,9 @@
+[Unit]
+Description=PRISMA Modo Pro - Disparo nocturno de recomendaciones (02:00 todos los dias)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

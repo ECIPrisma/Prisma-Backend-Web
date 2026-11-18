@@ -63,6 +63,7 @@ class AnalyticsDatabase:
             count = conn.execute("SELECT COUNT(*) FROM ventas_olap").fetchone()[0]
             if count == 0:
                 self._cargar_semilla_analitica()
+                self._cargar_semilla_formatos_empaque()
         else:
             cursor = conn.cursor()
             cursor.execute("""
@@ -85,6 +86,7 @@ class AnalyticsDatabase:
             count = cursor.fetchone()[0]
             if count == 0:
                 self._cargar_semilla_analitica()
+                self._cargar_semilla_formatos_empaque()
 
     def _cargar_semilla_analitica(self):
         conn = self.get_connection()
@@ -99,6 +101,38 @@ class AnalyticsDatabase:
             (104, 1, 1, 12, 'Galletas Chocolate', 'Snacks', 20, 1900.0, 38000.0, 'Norte', '2026-11-04 14:00:00'),
             (105, 4, 1, 10, 'Coca-Cola 1.5L', 'Bebidas', 48, 4000.0, 192000.0, 'Occidente', '2026-11-05 16:20:00'),
             (105, 4, 1, 11, 'Papas Fritas 150g', 'Snacks', 50, 2300.0, 115000.0, 'Occidente', '2026-11-05 16:20:00')
+        ]
+        if self.is_duckdb:
+            conn.executemany("INSERT INTO ventas_olap VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", seed_data)
+            self.exportar_a_parquet()
+        else:
+            cursor = conn.cursor()
+            cursor.executemany("INSERT INTO ventas_olap VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", seed_data)
+            conn.commit()
+
+    def _cargar_semilla_formatos_empaque(self):
+        """
+        HU-31: pedidos de Postobón (proveedor 2) para la minería de canasta de formatos de empaque.
+        - Sur: los tenderos piden siempre Postobón Manzana 400ml y nunca la 2.5L, que sí se vende en Occidente
+          (rechazo sistemático -> se prescribe un formato más accesible).
+        - Centro: Agua Cristal se compra tanto en 600ml como en 5L (sin patrón -> no se prescribe nada).
+        """
+        conn = self.get_connection()
+        seed_data = [
+            (201, 31, 2, 20, 'Postobón Manzana 400ml', 'Bebidas', 24, 2000.0, 48000.0, 'Sur', '2026-11-09 08:30:00'),
+            (202, 32, 2, 20, 'Postobón Manzana 400ml', 'Bebidas', 30, 2000.0, 60000.0, 'Sur', '2026-11-10 09:10:00'),
+            (203, 33, 2, 20, 'Postobón Manzana 400ml', 'Bebidas', 18, 2100.0, 37800.0, 'Sur', '2026-11-11 10:00:00'),
+            (203, 33, 2, 22, 'Agua Cristal 600ml', 'Bebidas', 24, 1500.0, 36000.0, 'Sur', '2026-11-11 10:00:00'),
+            (204, 31, 2, 20, 'Postobón Manzana 400ml', 'Bebidas', 24, 2000.0, 48000.0, 'Sur', '2026-11-12 08:45:00'),
+            (205, 32, 2, 20, 'Postobón Manzana 400ml', 'Bebidas', 36, 1900.0, 68400.0, 'Sur', '2026-11-13 09:30:00'),
+            (206, 34, 2, 21, 'Postobón Manzana 2.5L', 'Bebidas', 6, 7500.0, 45000.0, 'Occidente', '2026-11-09 11:00:00'),
+            (207, 34, 2, 21, 'Postobón Manzana 2.5L', 'Bebidas', 8, 7400.0, 59200.0, 'Occidente', '2026-11-12 11:20:00'),
+            (207, 34, 2, 23, 'Agua Cristal 5L', 'Bebidas', 4, 6500.0, 26000.0, 'Occidente', '2026-11-12 11:20:00'),
+            (208, 35, 2, 22, 'Agua Cristal 600ml', 'Bebidas', 24, 1500.0, 36000.0, 'Centro', '2026-11-09 15:00:00'),
+            (208, 35, 2, 20, 'Postobón Manzana 400ml', 'Bebidas', 12, 2000.0, 24000.0, 'Centro', '2026-11-09 15:00:00'),
+            (209, 36, 2, 22, 'Agua Cristal 600ml', 'Bebidas', 30, 1450.0, 43500.0, 'Centro', '2026-11-10 15:30:00'),
+            (210, 35, 2, 23, 'Agua Cristal 5L', 'Bebidas', 5, 6500.0, 32500.0, 'Centro', '2026-11-11 16:00:00'),
+            (211, 36, 2, 23, 'Agua Cristal 5L', 'Bebidas', 6, 6400.0, 38400.0, 'Centro', '2026-11-12 16:10:00')
         ]
         if self.is_duckdb:
             conn.executemany("INSERT INTO ventas_olap VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", seed_data)

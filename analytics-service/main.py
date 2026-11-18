@@ -136,6 +136,10 @@ def prescribir_empaques(
     resultado["proveedor_id"] = proveedor_id
     return resultado
 
+# Pantallas Modo Pro: ranking, alertas (HU-16) y recomendaciones narrativas (HU-17 + N-12) — N-11
+from modo_pro import router as modo_pro_router  # noqa: E402
+app.include_router(modo_pro_router)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
