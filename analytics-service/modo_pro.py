@@ -4,6 +4,7 @@ Endpoints de las pantallas Modo Pro del portal del proveedor (N-11):
   GET  /api/v1/analytics/modo-pro/alertas                     -> brechas de penetración territorial (HU-16)
   GET  /api/v1/analytics/modo-pro/recomendaciones             -> recomendaciones narrativas publicadas (HU-17)
   POST /api/v1/analytics/modo-pro/recomendaciones/generar     -> proceso nocturno de generación (HU-17 + N-12)
+  GET  /api/v1/analytics/modo-pro/formatos-empaque            -> prescripción de formatos de empaque (HU-31)
 
 El proceso nocturno lo dispara el timer de systemd prisma-reportes-nocturnos.timer (02:00 todos los días).
 """
@@ -18,6 +19,7 @@ from fastapi import APIRouter, Query
 from database import db
 from models.brechas import detectar_brechas
 from models.elasticity import calcular_elasticidad_y_prescribir_descuento
+from models.formatos_empaque import prescribir_formatos_empaque
 from models.narrativa import construir_contexto, generar_recomendacion
 from models.ranking import ranking_productos
 
@@ -165,3 +167,17 @@ def recomendaciones(proveedor_id: int = Query(1)):
     return {"proveedor_id": proveedor_id, "generado_en": generado_en, "recomendaciones": filas,
             "suficientes_datos": len(filas) > 0,
             "mensaje": None if filas else "Aún no hay suficientes datos"}
+
+
+# ---------------------------------------------------------------------------- Formatos de empaque (HU-31)
+
+@router.get("/formatos-empaque")
+def formatos_empaque(proveedor_id: int = Query(1), zona: Optional[str] = Query(None, description="Analizar solo esta zona")):
+    """
+    Minería de canasta (FP-Growth) por zona: si los tenderos demandan una referencia pero rechazan sistemáticamente
+    su presentación grande, prescribe empaques fraccionados o formatos institucionales más accesibles.
+    Sin reglas con soporte y confianza suficientes no se emite ninguna prescripción para esa referencia.
+    """
+    resultado = prescribir_formatos_empaque(_ventas(proveedor_id), zona)
+    resultado["proveedor_id"] = proveedor_id
+    return resultado
