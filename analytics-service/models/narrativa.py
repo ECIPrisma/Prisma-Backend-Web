@@ -81,7 +81,8 @@ def llamar_gemini(ctx: Dict[str, Any], api_key: Optional[str] = None, modelo: Op
     timeout = timeout or float(os.environ.get("LLM_TIMEOUT_SEGUNDOS", TIMEOUT_POR_DEFECTO))
     respuesta = requests.post(
         URL_GEMINI.format(modelo=modelo),
-        params={"key": api_key},
+        # La llave va en el encabezado (no en la URL) para que no quede en logs de proxies o del servidor
+        headers={"x-goog-api-key": api_key},
         json={"contents": [{"parts": [{"text": construir_prompt(ctx)}]}]},
         timeout=timeout,
     )

@@ -167,7 +167,9 @@ class TestRecomendacionHU17(unittest.TestCase):
             texto = llamar_gemini(ctx, api_key="llave-de-prueba", modelo="gemini-2.5-flash", timeout=5)
         self.assertEqual(texto, "Recomendación clara.")
         self.assertEqual(post.call_args.kwargs["timeout"], 5)
-        self.assertEqual(post.call_args.kwargs["params"], {"key": "llave-de-prueba"})
+        # La llave viaja en el encabezado x-goog-api-key, nunca en la URL
+        self.assertEqual(post.call_args.kwargs["headers"]["x-goog-api-key"], "llave-de-prueba")
+        self.assertNotIn("params", post.call_args.kwargs)
 
     def test_plantilla_en_lenguaje_claro(self):
         elastica = generar_narrativa_plantilla(construir_contexto(RESULTADO_ELASTICO, "Bebidas", "Norte"))
