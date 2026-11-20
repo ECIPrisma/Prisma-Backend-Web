@@ -2,6 +2,9 @@ package com.prisma.api.controller;
 
 import com.prisma.api.aspect.AuditableAction;
 import com.prisma.api.dto.ApiResponse;
+import com.prisma.api.dto.PagarPedidoRequest;
+import com.prisma.api.dto.PagoSuscripcionResponse;
+import com.prisma.api.dto.SuscripcionResponse;
 import com.prisma.api.entity.Disputa;
 import com.prisma.api.entity.Pedido;
 import com.prisma.api.entity.Producto;
@@ -9,6 +12,7 @@ import com.prisma.api.entity.Tienda;
 import com.prisma.api.enums.SeveridadAudit;
 import com.prisma.api.security.UserPrincipal;
 import com.prisma.api.service.PagoPedidoService;
+import com.prisma.api.service.SuscripcionTenderoService;
 import com.prisma.api.service.TiendaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,10 +31,14 @@ public class TiendaController {
 
     private final TiendaService tiendaService;
     private final PagoPedidoService pagoPedidoService;
+    private final SuscripcionTenderoService suscripcionTenderoService;
 
-    public TiendaController(TiendaService tiendaService, PagoPedidoService pagoPedidoService) {
+    public TiendaController(TiendaService tiendaService,
+                            PagoPedidoService pagoPedidoService,
+                            SuscripcionTenderoService suscripcionTenderoService) {
         this.tiendaService = tiendaService;
         this.pagoPedidoService = pagoPedidoService;
+        this.suscripcionTenderoService = suscripcionTenderoService;
     }
 
     @GetMapping("/mi-tienda")
@@ -103,5 +111,37 @@ public class TiendaController {
             @AuthenticationPrincipal UserPrincipal currentUser) {
         Disputa guardada = tiendaService.reportarAveria(pedidoId, payload, currentUser);
         return ResponseEntity.ok(ApiResponse.exito("Reclamo radicado exitosamente ante el proveedor", guardada));
+    }
+
+    // --- MODO PRO TENDERO: SUSCRIPCIÓN Y RADAR DE BARRIO ---
+
+    @GetMapping("/suscripcion")
+    @PreAuthorize("hasAnyAuthority('ROLE_TENDERO', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
+    @Operation(summary = "Consultar estado de suscripción Prisma Pro de la tienda")
+    public ResponseEntity<ApiResponse<SuscripcionResponse>> getEstadoSuscripcion(
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        SuscripcionResponse estado = suscripcionTenderoService.obtenerEstado(currentUser);
+        return ResponseEntity.ok(ApiResponse.exito("Estado de suscripción Prisma Pro Tendero", estado));
+    }
+
+    @PostMapping("/suscripcion/pago")
+    @PreAuthorize("hasAnyAuthority('ROLE_TENDERO', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
+    @Operation(summary = "Pagar suscripción mensual Prisma Pro Tendero ($49.000 COP) vía pasarela Wompi simulada")
+    @AuditableAction(action = "PAGO_SUSCRIPCION_TENDERO_PRO", severity = SeveridadAudit.INFO, resourceType = "SUSCRIPCION")
+    public ResponseEntity<ApiResponse<PagoSuscripcionResponse>> pagarSuscripcion(
+            @RequestBody PagarPedidoRequest request,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        PagoSuscripcionResponse pago = suscripcionTenderoService.pagarMes(currentUser, request);
+        String mensaje = pago.aprobado() ? "¡Suscripción Prisma Pro Tendero activada exitosamente!" : "El pago no pudo ser procesado";
+        return ResponseEntity.ok(ApiResponse.exito(mensaje, pago));
+    }
+
+    @GetMapping("/modo-pro/radar-zona")
+    @PreAuthorize("hasAnyAuthority('ROLE_TENDERO', 'ROLE_PLATFORM_ADMIN', 'ROLE_ADMIN')")
+    @Operation(summary = "Radar de productos más vendidos en el barrio y combos IA (Exclusivo Prisma Pro Tendero)")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getRadarZona(
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        Map<String, Object> radar = suscripcionTenderoService.obtenerRadarZona(currentUser);
+        return ResponseEntity.ok(ApiResponse.exito("Radar de barrio y combos IA desbloqueados", radar));
     }
 }

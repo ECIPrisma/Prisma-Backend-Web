@@ -23,6 +23,15 @@ public final class PlanPrismaPro {
             "Analítica económica avanzada (Modo Pro)",
             "Despachos, rutas y seguimiento de flota");
 
+    // Plan Prisma Pro para Tenderos de Barrio
+    public static final String CODIGO_TENDERO = "TENDERO_PRO";
+    public static final String NOMBRE_TENDERO = "Prisma Pro Tendero";
+    public static final BigDecimal PRECIO_TENDERO_CON_IVA = new BigDecimal("49000.00");
+    public static final List<String> BENEFICIOS_TENDERO = List.of(
+            "Radar de barrio: top productos más vendidos en tu zona",
+            "Combos inteligentes sugeridos por IA para aumentar margen comercial",
+            "Alertas de desabastecimiento y tendencias del sector");
+
     private PlanPrismaPro() {}
 
     /** Valor sin IVA, redondeado al centavo. */
