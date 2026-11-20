@@ -131,30 +131,30 @@ public class SuscripcionTenderoService {
             throw new ApiException(HttpStatus.FORBIDDEN, "Requiere suscripción activa a Prisma Pro Tendero para consultar el Radar de Barrio");
         }
 
-        String zonaBarrio = tienda.getBarrio() != null && !tienda.getBarrio().isBlank() ? tienda.getBarrio() : "Bogotá Centro";
+        String zonaBarrio = tienda.getBarrio() != null && !tienda.getBarrio().isBlank() ? tienda.getBarrio() : "Kennedy Central";
 
-        // Top productos más vendidos en su sector con métricas analíticas
+        // Bebidas líderes oficiales de la distribuidora más pedidas en el cuadrante
         List<Map<String, Object>> topProductos = List.of(
-                Map.of("posicion", 1, "nombre", "Leche Entera Alquería 1L", "categoria", "Lácteos", "tendencia", "+24%", "rotacion", "Muy Alta", "precioSugerido", 4800, "demanda", "Alta"),
-                Map.of("posicion", 2, "nombre", "Arroz Diana Tradicional 1kg", "categoria", "Granos", "tendencia", "+18%", "rotacion", "Alta", "precioSugerido", 5200, "demanda", "Alta"),
-                Map.of("posicion", 3, "nombre", "Aceite Premier 1000ml", "categoria", "Abarrotes", "tendencia", "+15%", "rotacion", "Alta", "precioSugerido", 10500, "demanda", "Media-Alta"),
-                Map.of("posicion", 4, "nombre", "Café Sello Rojo 500g", "categoria", "Café e Infusiones", "tendencia", "+12%", "rotacion", "Media-Alta", "precioSugerido", 14900, "demanda", "Media-Alta"),
-                Map.of("posicion", 5, "nombre", "Galletas Festival Chocolate", "categoria", "Snacks y Confitería", "tendencia", "+20%", "rotacion", "Muy Alta", "precioSugerido", 1200, "demanda", "Alta")
+                Map.of("posicion", 1, "nombre", "Coca-Cola 1.5L Retornable", "presentacion", "Caja x 8 Botellas", "categoria", "Gaseosas", "tendencia", "+28%", "rotacion", "Muy Alta", "precioCompra", 32000, "precioSugerido", 42000, "demanda", "Alta"),
+                Map.of("posicion", 2, "nombre", "Coca-Cola Sabor Original 3L PET", "presentacion", "Paca x 6 Botellas", "categoria", "Gaseosas", "tendencia", "+22%", "rotacion", "Muy Alta", "precioCompra", 54000, "precioSugerido", 66000, "demanda", "Alta"),
+                Map.of("posicion", 3, "nombre", "Quatro Toronja 400ml PET", "presentacion", "Paca x 12 Unidades", "categoria", "Gaseosas Cítricas", "tendencia", "+25%", "rotacion", "Alta", "precioCompra", 28000, "precioSugerido", 35400, "demanda", "Alta"),
+                Map.of("posicion", 4, "nombre", "Monster Energy Drink 473ml", "presentacion", "Bandeja x 12 Latas", "categoria", "Energizantes", "tendencia", "+16%", "rotacion", "Alta", "precioCompra", 86000, "precioSugerido", 108000, "demanda", "Media-Alta"),
+                Map.of("posicion", 5, "nombre", "Agua Brisa con Gas 600ml", "presentacion", "Paca x 12 Botellas", "categoria", "Aguas", "tendencia", "+14%", "rotacion", "Alta", "precioCompra", 21600, "precioSugerido", 28000, "demanda", "Media-Alta")
         );
 
-        // Combos recomendados con IA (Minería de canasta FP-Growth)
+        // Combos recomendados del preventista para la nevera / vitrina
         List<Map<String, Object>> combosIa = List.of(
                 Map.of(
-                        "titulo", "Combo Desayuno Tradicional",
-                        "items", "Café Sello Rojo 500g + Leche Alquería 1L",
-                        "margenEstimado", "+18% sobre compra individual",
-                        "motivoIa", "83% de las compras de café en " + zonaBarrio + " van acompañadas de leche."
+                        "titulo", "Combo Almuerzo Familiar",
+                        "items", "1 Paca Coca-Cola 3L PET + 1 Paca Quatro Toronja 1.5L",
+                        "margenEstimado", "+$22.000 COP de ganancia por paca",
+                        "consejoVenta", "Quien compra gaseosa familiar suele pedir sabor cítrico para alternar en el almuerzo. Ubícalas juntas en la primera hilera de la nevera."
                 ),
                 Map.of(
-                        "titulo", "Combo Merienda Escolar / Tarde",
-                        "items", "Galletas Festival + Jugo Hit 200ml",
-                        "margenEstimado", "+22% sobre venta en vitrina",
-                        "motivoIa", "Artículos de alta rotación en horarios de 3:00 PM a 6:00 PM en tiendas del sector."
+                        "titulo", "Combo Clientes de Paso (Mediodía)",
+                        "items", "1 Paquete Coca-Cola 400ml + 1 Paca Agua Brisa 600ml",
+                        "margenEstimado", "+$14.500 COP de ganancia por paquete",
+                        "consejoVenta", "Trabajadores y transeúntes buscan bebida individual fría entre las 12:00 y las 14:00 horas. Mantenerlas en la bandeja de caja registradora agiliza el recaudo."
                 )
         );
 
