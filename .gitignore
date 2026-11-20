@@ -10,6 +10,8 @@ target/
 *.log
 *.tmp
 .env
+__pycache__/
+*.pyc
 
 # STS / Eclipse
 .apt_generated
