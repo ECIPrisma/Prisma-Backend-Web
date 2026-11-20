@@ -69,6 +69,7 @@ public class DataInitializer implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
         if (proveedorRepository.count() > 0) {
+            seedNuevosProductos();
             return;
         }
 
@@ -416,5 +417,128 @@ public class DataInitializer implements CommandLineRunner {
         configRepository.save(new ConfiguracionSistema("pin_validez_minutos", "15", "INTEGER", "Vigencia en minutos del PIN criptográfico de entrega", "SEGURIDAD"));
 
         logger.info("Datos semilla iniciales cargados exitosamente.");
+        seedNuevosProductos();
+    }
+
+    private void seedNuevosProductos() {
+        var proveedores = proveedorRepository.findAll();
+        if (proveedores.isEmpty()) return;
+
+        Proveedor femsa = proveedores.stream()
+                .filter(p -> p.getNombreComercial().contains("FEMSA") || p.getRazonSocial().contains("Gaseosas"))
+                .findFirst().orElse(proveedores.get(0));
+
+        Proveedor postobon = proveedores.stream()
+                .filter(p -> p.getNombreComercial().contains("Postobón") || p.getRazonSocial().contains("Postobón"))
+                .findFirst().orElse(femsa);
+
+        Categoria catBebidas = categoriaRepository.findAll().stream()
+                .findFirst().orElseGet(() -> {
+                    Categoria c = new Categoria();
+                    c.setNombre("Gaseosas y Bebidas");
+                    c.setDescripcion("Bebidas carbonatadas y refrescos");
+                    return categoriaRepository.save(c);
+                });
+
+        // 1. Coca-Cola 3 Litros PET Familiar
+        registrarProductoSiNoExiste(femsa, catBebidas, "KO-PET-3000",
+                "Coca-Cola Sabor Original 3 Litros PET",
+                "Presentación familiar no retornable para fin de semana.",
+                "Paca x 6 Botellas",
+                new BigDecimal("54000.00"), new BigDecimal("66000.00"), 9999,
+                "https://images.unsplash.com/photo-1554866585-cd94860890b7?w=500&auto=format&fit=crop&q=80", "PROMOCION");
+
+        // 2. Coca-Cola Vidrio Retornable 350ml
+        registrarProductoSiNoExiste(femsa, catBebidas, "KO-350ML-RET",
+                "Coca-Cola Vidrio Retornable 350ml",
+                "Botella de vidrio tradicional en canasta plástica de máxima rotación.",
+                "Canasta x 30 Botellas",
+                new BigDecimal("36000.00"), new BigDecimal("54000.00"), 9999,
+                "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=500&auto=format&fit=crop&q=80", "ACTIVO");
+
+        // 3. Sprite Lima-Limón 400ml PET
+        registrarProductoSiNoExiste(femsa, catBebidas, "KO-SPRITE-400",
+                "Sprite Lima-Limón 400ml PET",
+                "Gaseosa refrescante sabor natural lima-limón personal.",
+                "Paca x 12 Unidades",
+                new BigDecimal("27000.00"), new BigDecimal("34800.00"), 9999,
+                "https://images.unsplash.com/photo-1625772299848-391b6a87d7b3?w=500&auto=format&fit=crop&q=80", "ACTIVO");
+
+        // 4. Quatro Toronja 400ml PET
+        registrarProductoSiNoExiste(femsa, catBebidas, "KO-QUATRO-400",
+                "Quatro Toronja 400ml PET",
+                "Gaseosa sabor a toronja de alta preferencia en tienda de barrio.",
+                "Paca x 12 Unidades",
+                new BigDecimal("28000.00"), new BigDecimal("35400.00"), 9999,
+                "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=500&auto=format&fit=crop&q=80", "ACTIVO");
+
+        // 5. Monster Energy Drink 473ml
+        registrarProductoSiNoExiste(femsa, catBebidas, "KO-MONSTER-473",
+                "Monster Energy Drink 473ml",
+                "Bebida energizante importada lata grande de alta rotación.",
+                "Bandeja x 12 Latas",
+                new BigDecimal("86000.00"), new BigDecimal("108000.00"), 9999,
+                "https://images.unsplash.com/photo-1622543925917-763c34d1a86e?w=500&auto=format&fit=crop&q=80", "NUEVO_LANZAMIENTO");
+
+        // 6. Powerade Ion4 Mountain Berry 500ml
+        registrarProductoSiNoExiste(femsa, catBebidas, "KO-POWER-500",
+                "Powerade Ion4 Mountain Berry 500ml",
+                "Bebida hidratante con 4 electrolitos para deportistas.",
+                "Paca x 12 Botellas",
+                new BigDecimal("32400.00"), new BigDecimal("42000.00"), 9999,
+                "https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=500&auto=format&fit=crop&q=80", "ACTIVO");
+
+        // 7. Manzana Postobón 400ml PET
+        registrarProductoSiNoExiste(postobon, catBebidas, "PST-MANZ-400",
+                "Manzana Postobón 400ml PET",
+                "Gaseosa sabor manzana favorita de Colombia.",
+                "Paca x 15 Unidades",
+                new BigDecimal("36000.00"), new BigDecimal("42000.00"), 9999,
+                "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=500&auto=format&fit=crop&q=80", "PROMOCION");
+
+        // 8. Gaseosa Colombiana La Nuestra 400ml
+        registrarProductoSiNoExiste(postobon, catBebidas, "PST-COLOMB-400",
+                "Gaseosa Colombiana La Nuestra 400ml",
+                "Bebida tradicional colombiana sabor kola champagne.",
+                "Paca x 15 Unidades",
+                new BigDecimal("36000.00"), new BigDecimal("43500.00"), 9999,
+                "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=500&auto=format&fit=crop&q=80", "ACTIVO");
+
+        // 9. Jugo Hit Mora 500ml PET
+        registrarProductoSiNoExiste(postobon, catBebidas, "HIT-MORA-500ML",
+                "Jugo Hit Mora 500ml PET",
+                "Bebida de néctar de fruta mora tropical.",
+                "Paca x 12 Unidades",
+                new BigDecimal("26400.00"), new BigDecimal("33600.00"), 9999,
+                "https://images.unsplash.com/photo-1613478223719-2ab802602423?w=500&auto=format&fit=crop&q=80", "ACTIVO");
+
+        // 10. Bretaña Soda Mezclador 300ml Vidrio
+        registrarProductoSiNoExiste(postobon, catBebidas, "PST-BRETANA-300",
+                "Bretaña Soda Mezclador 300ml Vidrio",
+                "Soda gasificada mezcladora tradicional en botella de vidrio.",
+                "Canasta x 24 Botellas",
+                new BigDecimal("38000.00"), new BigDecimal("48000.00"), 9999,
+                "https://images.unsplash.com/photo-1554866585-cd94860890b7?w=500&auto=format&fit=crop&q=80", "ACTIVO");
+    }
+
+    private void registrarProductoSiNoExiste(Proveedor proveedor, Categoria categoria, String sku, String nombre,
+                                            String descripcion, String presentacion, BigDecimal precioUnitario,
+                                            BigDecimal precioSugerido, int stock, String imagenUrl, String estado) {
+        if (productoRepository.findByProveedorIdAndSku(proveedor.getId(), sku).isEmpty()) {
+            Producto p = new Producto();
+            p.setProveedor(proveedor);
+            p.setCategoria(categoria);
+            p.setSku(sku);
+            p.setNombre(nombre);
+            p.setDescripcion(descripcion);
+            p.setPresentacion(presentacion);
+            p.setPrecioUnitario(precioUnitario);
+            p.setPrecioSugeridoPublico(precioSugerido);
+            p.setStockDisponible(stock);
+            p.setImagenUrl(imagenUrl);
+            p.setEstado(estado);
+            productoRepository.save(p);
+            logger.info("Nuevo producto registrado en catálogo: {} (SKU: {})", nombre, sku);
+        }
     }
 }
