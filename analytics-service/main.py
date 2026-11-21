@@ -81,6 +81,20 @@ def sync_olap_parquet():
         "sub_segundo": duracion_ms < 1000.0
     }
 
+@app.post("/api/v1/analytics/ingestar-ventas")
+def ingestar_ventas(ventas: List[dict]):
+    """
+    Ingesta ventas reales desde PostgreSQL a la base de datos columnar DuckDB (ETL en caliente).
+    """
+    total = db.ingestar_ventas_batch(ventas)
+    df_c = db.query_df("SELECT COUNT(*) AS c FROM ventas_olap")
+    total_acumulado = int(df_c["c"].iloc[0]) if not df_c.empty else total
+    return {
+        "status": "SUCCESS",
+        "registros_ingestados": total,
+        "total_acumulado_olap": total_acumulado
+    }
+
 @app.get("/api/v1/analytics/prescripcion/descuentos")
 def prescribir_descuentos(
     producto_id: int = Query(10, description="ID del producto a evaluar"),

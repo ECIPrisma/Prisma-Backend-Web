@@ -88,6 +88,12 @@ public class Pedido {
     @Column(name = "actualizado_en", nullable = false)
     private OffsetDateTime actualizadoEn = OffsetDateTime.now();
 
+    @Column(name = "cantidad_envases_devueltos")
+    private Integer cantidadEnvasesDevueltos = 0;
+
+    @Column(name = "valor_garantia_envases", precision = 12, scale = 2)
+    private BigDecimal valorGarantiaEnvases = BigDecimal.ZERO;
+
     @OneToMany(mappedBy = "pedido", cascade = CascadeType.ALL, orphanRemoval = true)
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"pedido"})
     private List<ItemPedido> items = new ArrayList<>();
@@ -190,4 +196,10 @@ public class Pedido {
         items.add(item);
         item.setPedido(this);
     }
+
+    public Integer getCantidadEnvasesDevueltos() { return cantidadEnvasesDevueltos; }
+    public void setCantidadEnvasesDevueltos(Integer cantidadEnvasesDevueltos) { this.cantidadEnvasesDevueltos = cantidadEnvasesDevueltos; }
+
+    public BigDecimal getValorGarantiaEnvases() { return valorGarantiaEnvases; }
+    public void setValorGarantiaEnvases(BigDecimal valorGarantiaEnvases) { this.valorGarantiaEnvases = valorGarantiaEnvases; }
 }

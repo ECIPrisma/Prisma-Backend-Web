@@ -127,6 +127,36 @@ class AnalyticsDatabase:
             return pd.read_sql(sql, conn, params=params)
         return pd.read_sql(sql, conn)
 
+    def ingestar_ventas_batch(self, ventas_list: List[Dict[str, Any]]) -> int:
+        """Inserta registros de ventas reales provenientes de PostgreSQL en ventas_olap y actualiza Parquet."""
+        if not ventas_list:
+            return 0
+        conn = self.get_connection()
+        registros = []
+        for v in ventas_list:
+            registros.append((
+                v.get("pedido_id"),
+                v.get("tienda_id"),
+                v.get("proveedor_id"),
+                v.get("producto_id"),
+                v.get("nombre_producto", "Producto"),
+                v.get("categoria", "General"),
+                int(v.get("cantidad", 1)),
+                float(v.get("precio_unitario", 0.0)),
+                float(v.get("total", 0.0)),
+                v.get("zona", "Bogotá"),
+                str(v.get("fecha_pedido", "2026-11-20 12:00:00"))
+            ))
+        if self.is_duckdb:
+            conn.executemany("INSERT INTO ventas_olap VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", registros)
+            self.exportar_a_parquet()
+        else:
+            cursor = conn.cursor()
+            cursor.executemany("INSERT INTO ventas_olap VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", registros)
+            conn.commit()
+            self.exportar_a_parquet()
+        return len(registros)
+
     def consultar_parquet(self, parquet_file: str = None) -> List[Dict[str, Any]]:
         """Lee directamente desde archivos Parquet o almacenamiento columnar (SCRUM-41)"""
         conn = self.get_connection()

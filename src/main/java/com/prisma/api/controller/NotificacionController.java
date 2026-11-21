@@ -51,4 +51,13 @@ public class NotificacionController {
         List<Map<String, Object>> lista = pushNotificationService.obtenerNotificacionesUsuario(currentUser.getId());
         return ResponseEntity.ok(ApiResponse.exito("Notificaciones del usuario", lista));
     }
+
+    @PutMapping("/{id}/leer")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Marcar una notificación como leída")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> marcarLeida(
+            @PathVariable Long id) {
+        pushNotificationService.marcarComoLeida(id);
+        return ResponseEntity.ok(ApiResponse.exito("Notificación marcada como leída", Map.of("id", id, "leida", true)));
+    }
 }

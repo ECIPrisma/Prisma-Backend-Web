@@ -53,6 +53,12 @@ public class Tienda {
     @Column(nullable = false, length = 20)
     private String estado = "ACTIVA";
 
+    @Column(name = "cupo_credito_disponible", precision = 12, scale = 2)
+    private BigDecimal cupoCreditoDisponible = new BigDecimal("2000000.00");
+
+    @Column(name = "saldo_pendiente_pago", precision = 12, scale = 2)
+    private BigDecimal saldoPendientePago = BigDecimal.ZERO;
+
     @Column(name = "creado_en", nullable = false, updatable = false)
     private OffsetDateTime creadoEn = OffsetDateTime.now();
 
@@ -102,4 +108,10 @@ public class Tienda {
 
     public OffsetDateTime getCreadoEn() { return creadoEn; }
     public void setCreadoEn(OffsetDateTime creadoEn) { this.creadoEn = creadoEn; }
+
+    public BigDecimal getCupoCreditoDisponible() { return cupoCreditoDisponible; }
+    public void setCupoCreditoDisponible(BigDecimal cupoCreditoDisponible) { this.cupoCreditoDisponible = cupoCreditoDisponible; }
+
+    public BigDecimal getSaldoPendientePago() { return saldoPendientePago; }
+    public void setSaldoPendientePago(BigDecimal saldoPendientePago) { this.saldoPendientePago = saldoPendientePago; }
 }

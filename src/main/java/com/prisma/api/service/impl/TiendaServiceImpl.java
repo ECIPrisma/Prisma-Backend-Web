@@ -155,15 +155,19 @@ public class TiendaServiceImpl implements TiendaService {
         for (Map<String, Object> it : itemsData) {
             Long prodId = Long.parseLong(it.get("productoId").toString());
             int cantidad = Integer.parseInt(it.get("cantidad").toString());
-            Producto prod = productoRepository.findById(prodId).orElse(null);
+            Producto prod = productoRepository.findByIdForUpdate(prodId)
+                    .orElseGet(() -> productoRepository.findById(prodId).orElse(null));
             if (prod != null) {
                 if (prod.getStockDisponible() <= 0) {
                     throw new BadRequestException("El producto " + prod.getNombre() + " se encuentra Agotado");
                 }
+                if (prod.getStockDisponible() < cantidad) {
+                    throw new BadRequestException("Stock insuficiente para el producto '" + prod.getNombre() + "'. Disponible: " + prod.getStockDisponible() + " unidades");
+                }
                 if (cantidad < prod.getCantidadMinimaPedido()) {
                     throw new BadRequestException("La cantidad mínima para este producto es " + prod.getCantidadMinimaPedido() + " unidades");
                 }
-                prod.setStockDisponible(Math.max(0, prod.getStockDisponible() - cantidad));
+                prod.setStockDisponible(prod.getStockDisponible() - cantidad);
                 productoRepository.save(prod);
 
                 ItemPedido itemPedido = new ItemPedido();
@@ -185,10 +189,18 @@ public class TiendaServiceImpl implements TiendaService {
             subtotal = new BigDecimal("125000.00");
         }
 
+        int envasesDevueltos = payload.containsKey("cantidadEnvasesDevueltos") ? Integer.parseInt(payload.get("cantidadEnvasesDevueltos").toString()) : 0;
+        BigDecimal garantiaPorEnvase = new BigDecimal("500.00"); // $500 COP reconocimiento por envase retornable vacío devuelto
+        BigDecimal valorGarantiaEnvases = garantiaPorEnvase.multiply(new BigDecimal(envasesDevueltos));
+
         pedido.setSubtotal(subtotal);
-        pedido.setTotalAPagar(subtotal);
+        pedido.setCantidadEnvasesDevueltos(envasesDevueltos);
+        pedido.setValorGarantiaEnvases(valorGarantiaEnvases);
+        pedido.setDescuento(valorGarantiaEnvases);
+        BigDecimal totalNeto = subtotal.subtract(valorGarantiaEnvases).max(BigDecimal.ZERO);
+        pedido.setTotalAPagar(totalNeto);
         // HU-13: comisión de la plataforma fija, Ccomision = Vtotal × 0.035
-        BigDecimal comision = com.prisma.api.pagos.ReglasSplitPayment.comisionPlataforma(subtotal);
+        BigDecimal comision = com.prisma.api.pagos.ReglasSplitPayment.comisionPlataforma(totalNeto);
         pedido.setComisionPrismaValor(comision);
 
         List<Ruta> rutasProveedor = rutaRepository.findByProveedorIdAndFechaProgramada(prov.getId(), LocalDate.now());

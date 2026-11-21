@@ -30,6 +30,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import com.prisma.api.enums.Rol;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -163,6 +164,71 @@ public class ProveedorController {
 
         Producto guardado = productoRepository.save(p);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.exito("Producto creado con éxito", guardado));
+    }
+
+    @PostMapping("/productos/lote")
+    @PreAuthorize("hasAnyAuthority('ROLE_PROVEEDOR_ADMIN', 'ROLE_PROVEEDOR', 'ROLE_ADMIN', 'ROLE_PLATFORM_ADMIN')")
+    @Transactional
+    @Operation(summary = "Carga masiva de catálogo vía Excel o CSV en lote")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> crearProductosEnLote(
+            @AuthenticationPrincipal UserPrincipal currentUser,
+            @RequestBody List<Map<String, Object>> productosLote) {
+
+        Long provId = resolveProveedorId(currentUser);
+        Proveedor prov = proveedorRepository.findById(provId)
+                .orElseThrow(() -> new RuntimeException("Proveedor no encontrado: " + provId));
+
+        int creados = 0;
+        int actualizados = 0;
+
+        for (Map<String, Object> body : productosLote) {
+            String sku = body.getOrDefault("sku", "").toString().trim();
+            if (sku.isBlank()) {
+                sku = "SKU-" + System.nanoTime();
+            }
+
+            Optional<Producto> existente = productoRepository.findByProveedorIdAndSku(provId, sku);
+            Producto p = existente.orElseGet(Producto::new);
+            if (existente.isPresent()) {
+                actualizados++;
+            } else {
+                p.setProveedor(prov);
+                p.setSku(sku);
+                creados++;
+            }
+
+            p.setNombre((String) body.getOrDefault("nombre", "Producto " + sku));
+            p.setDescripcion((String) body.getOrDefault("descripcion", ""));
+            p.setPresentacion((String) body.getOrDefault("presentacion", "Unidad"));
+
+            Object precioObj = body.get("precioUnitario");
+            BigDecimal precio = precioObj != null ? new BigDecimal(precioObj.toString()) : BigDecimal.valueOf(1000);
+            p.setPrecioUnitario(precio);
+
+            Object precioSugObj = body.get("precioSugeridoPublico");
+            p.setPrecioSugeridoPublico(precioSugObj != null ? new BigDecimal(precioSugObj.toString()) : precio.multiply(BigDecimal.valueOf(1.2)));
+
+            Object stockObj = body.get("stockDisponible");
+            p.setStockDisponible(stockObj != null ? Integer.parseInt(stockObj.toString()) : 100);
+
+            Object cantMinObj = body.get("cantidadMinimaPedido");
+            p.setCantidadMinimaPedido(cantMinObj != null ? Math.max(1, Integer.parseInt(cantMinObj.toString())) : 1);
+
+            p.setEsRetornable(Boolean.parseBoolean(String.valueOf(body.getOrDefault("esRetornable", false))));
+            p.setImagenUrl((String) body.getOrDefault("imagenUrl", "/logo_icono_tienda.png"));
+            p.setEstado((String) body.getOrDefault("estado", "ACTIVO"));
+
+            Long catId = body.get("categoriaId") != null ? Long.parseLong(body.get("categoriaId").toString()) : 1L;
+            Categoria categoria = categoriaRepository.findById(catId).orElse(categoriaRepository.findAll().stream().findFirst().orElse(null));
+            p.setCategoria(categoria);
+
+            productoRepository.save(p);
+        }
+
+        return ResponseEntity.ok(ApiResponse.exito(
+                "Carga masiva completada exitosamente",
+                Map.of("totalProcesados", productosLote.size(), "creados", creados, "actualizados", actualizados)
+        ));
     }
 
     @PutMapping("/productos/{id}")

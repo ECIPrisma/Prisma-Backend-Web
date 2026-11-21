@@ -61,6 +61,10 @@ public class Producto {
     @Column(nullable = false, length = 20)
     private String estado = "ACTIVO";
 
+    @Version
+    @Column(name = "version")
+    private Long version;
+
     @Column(name = "creado_en", nullable = false, updatable = false)
     private OffsetDateTime creadoEn = OffsetDateTime.now();
 
@@ -113,4 +117,7 @@ public class Producto {
 
     public OffsetDateTime getCreadoEn() { return creadoEn; }
     public void setCreadoEn(OffsetDateTime creadoEn) { this.creadoEn = creadoEn; }
+
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
 }

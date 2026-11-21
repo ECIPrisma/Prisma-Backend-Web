@@ -142,7 +142,7 @@ public class DataInitializer implements CommandLineRunner {
         p1.setStockDisponible(9999);
         p1.setImagenUrl("https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=500&auto=format&fit=crop&q=80");
         p1.setEstado("PROMOCION");
-        productoRepository.save(p1);
+        p1 = productoRepository.save(p1);
 
         Producto p2 = new Producto();
         p2.setProveedor(femsa);
@@ -156,7 +156,7 @@ public class DataInitializer implements CommandLineRunner {
         p2.setStockDisponible(9999);
         p2.setImagenUrl("https://images.unsplash.com/photo-1554866585-cd94860890b7?w=500&auto=format&fit=crop&q=80");
         p2.setEstado("ACTIVO");
-        productoRepository.save(p2);
+        p2 = productoRepository.save(p2);
 
         Producto p3 = new Producto();
         p3.setProveedor(femsa);
@@ -170,7 +170,7 @@ public class DataInitializer implements CommandLineRunner {
         p3.setStockDisponible(9999);
         p3.setImagenUrl("https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=500&auto=format&fit=crop&q=80");
         p3.setEstado("NUEVO_LANZAMIENTO");
-        productoRepository.save(p3);
+        p3 = productoRepository.save(p3);
 
         Producto p4 = new Producto();
         p4.setProveedor(femsa);
@@ -184,7 +184,7 @@ public class DataInitializer implements CommandLineRunner {
         p4.setStockDisponible(9999);
         p4.setImagenUrl("https://images.unsplash.com/photo-1613478223719-2ab802602423?w=500&auto=format&fit=crop&q=80");
         p4.setEstado("PROMOCION");
-        productoRepository.save(p4);
+        p4 = productoRepository.save(p4);
 
         Producto p5 = new Producto();
         p5.setProveedor(femsa);
@@ -198,7 +198,7 @@ public class DataInitializer implements CommandLineRunner {
         p5.setStockDisponible(9999);
         p5.setImagenUrl("https://images.unsplash.com/photo-1548839140-29a749e1bc4e?w=500&auto=format&fit=crop&q=80");
         p5.setEstado("ACTIVO");
-        productoRepository.save(p5);
+        p5 = productoRepository.save(p5);
 
         // 5. Usuarios Semilla
         Usuario adminUser = usuarioRepository.save(new Usuario("admin@prisma.com.co", passwordEncoder.encode("admin123"), "Administrador Prisma", "3001234567", Rol.ROLE_ADMIN, null));
