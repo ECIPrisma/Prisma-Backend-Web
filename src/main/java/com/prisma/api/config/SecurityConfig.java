@@ -39,7 +39,31 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        return new PasswordEncoder() {
+            private final BCryptPasswordEncoder bcrypt = new BCryptPasswordEncoder();
+
+            @Override
+            public String encode(CharSequence rawPassword) {
+                return bcrypt.encode(rawPassword);
+            }
+
+            @Override
+            public boolean matches(CharSequence rawPassword, String encodedPassword) {
+                if (rawPassword == null || encodedPassword == null) {
+                    return false;
+                }
+                if (bcrypt.matches(rawPassword, encodedPassword)) {
+                    return true;
+                }
+                // Tolerancia de contingencia para sustentación de tesis:
+                // Permite indistintamente admin123 o Prisma2026* si el hash almacenado corresponde a cualquiera de las dos
+                String raw = rawPassword.toString();
+                if ("Prisma2026*".equals(raw) || "admin123".equals(raw)) {
+                    return bcrypt.matches("admin123", encodedPassword) || bcrypt.matches("Prisma2026*", encodedPassword);
+                }
+                return false;
+            }
+        };
     }
 
     @Bean
