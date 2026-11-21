@@ -141,7 +141,7 @@ public class DataInitializer implements CommandLineRunner {
         p1.setPrecioSugeridoPublico(new BigDecimal("36000.00"));
         p1.setStockDisponible(9999);
         p1.setImagenUrl("https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=500&auto=format&fit=crop&q=80");
-        p1.setEstado("PROMOCION");
+        p1.setEstado("ACTIVO");
         p1 = productoRepository.save(p1);
 
         Producto p2 = new Producto();
@@ -169,7 +169,7 @@ public class DataInitializer implements CommandLineRunner {
         p3.setPrecioSugeridoPublico(new BigDecimal("42000.00"));
         p3.setStockDisponible(9999);
         p3.setImagenUrl("https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=500&auto=format&fit=crop&q=80");
-        p3.setEstado("NUEVO_LANZAMIENTO");
+        p3.setEstado("ACTIVO");
         p3 = productoRepository.save(p3);
 
         Producto p4 = new Producto();
@@ -183,7 +183,7 @@ public class DataInitializer implements CommandLineRunner {
         p4.setPrecioSugeridoPublico(new BigDecimal("28000.00"));
         p4.setStockDisponible(9999);
         p4.setImagenUrl("https://images.unsplash.com/photo-1613478223719-2ab802602423?w=500&auto=format&fit=crop&q=80");
-        p4.setEstado("PROMOCION");
+        p4.setEstado("ACTIVO");
         p4 = productoRepository.save(p4);
 
         Producto p5 = new Producto();
@@ -446,7 +446,7 @@ public class DataInitializer implements CommandLineRunner {
                 "Presentación familiar no retornable para fin de semana.",
                 "Paca x 6 Botellas",
                 new BigDecimal("54000.00"), new BigDecimal("66000.00"), 9999,
-                "https://images.unsplash.com/photo-1554866585-cd94860890b7?w=500&auto=format&fit=crop&q=80", "PROMOCION");
+                "https://images.unsplash.com/photo-1554866585-cd94860890b7?w=500&auto=format&fit=crop&q=80", "ACTIVO");
 
         // 2. Coca-Cola Vidrio Retornable 350ml
         registrarProductoSiNoExiste(femsa, catBebidas, "KO-350ML-RET",
@@ -478,7 +478,7 @@ public class DataInitializer implements CommandLineRunner {
                 "Bebida energizante importada lata grande de alta rotación.",
                 "Bandeja x 12 Latas",
                 new BigDecimal("86000.00"), new BigDecimal("108000.00"), 9999,
-                "https://images.unsplash.com/photo-1622543925917-763c34d1a86e?w=500&auto=format&fit=crop&q=80", "NUEVO_LANZAMIENTO");
+                "https://images.unsplash.com/photo-1622543925917-763c34d1a86e?w=500&auto=format&fit=crop&q=80", "ACTIVO");
 
         // 6. Powerade Ion4 Mountain Berry 500ml
         registrarProductoSiNoExiste(femsa, catBebidas, "KO-POWER-500",
@@ -494,7 +494,7 @@ public class DataInitializer implements CommandLineRunner {
                 "Gaseosa sabor manzana favorita de Colombia.",
                 "Paca x 15 Unidades",
                 new BigDecimal("36000.00"), new BigDecimal("42000.00"), 9999,
-                "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=500&auto=format&fit=crop&q=80", "PROMOCION");
+                "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=500&auto=format&fit=crop&q=80", "ACTIVO");
 
         // 8. Gaseosa Colombiana La Nuestra 400ml
         registrarProductoSiNoExiste(postobon, catBebidas, "PST-COLOMB-400",
